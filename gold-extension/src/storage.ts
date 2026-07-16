@@ -1,5 +1,6 @@
 import type {
   ExtensionSettings,
+  HoldingTransaction,
   PriceAlert,
   QuoteHistory,
   QuoteSnapshot,
@@ -11,6 +12,7 @@ export const STORAGE_KEYS = {
   history: "quoteHistory",
   settings: "extensionSettings",
   alerts: "priceAlerts",
+  transactions: "holdingTransactions",
 } as const;
 
 export async function getSnapshot(): Promise<QuoteSnapshot | null> {
@@ -44,15 +46,26 @@ export async function saveAlerts(alerts: PriceAlert[]): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.alerts]: alerts });
 }
 
+export async function getTransactions(): Promise<HoldingTransaction[]> {
+  const result = await chrome.storage.local.get(STORAGE_KEYS.transactions);
+  return (result[STORAGE_KEYS.transactions] as HoldingTransaction[] | undefined) ?? [];
+}
+
+export async function saveTransactions(transactions: HoldingTransaction[]): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.transactions]: transactions });
+}
+
 export async function initializeStorage(): Promise<void> {
   const result = await chrome.storage.local.get([
     STORAGE_KEYS.settings,
     STORAGE_KEYS.history,
     STORAGE_KEYS.alerts,
+    STORAGE_KEYS.transactions,
   ]);
   const initial: Record<string, unknown> = {};
   if (!result[STORAGE_KEYS.settings]) initial[STORAGE_KEYS.settings] = DEFAULT_SETTINGS;
   if (!result[STORAGE_KEYS.history]) initial[STORAGE_KEYS.history] = {};
   if (!result[STORAGE_KEYS.alerts]) initial[STORAGE_KEYS.alerts] = [];
+  if (!result[STORAGE_KEYS.transactions]) initial[STORAGE_KEYS.transactions] = [];
   if (Object.keys(initial).length > 0) await chrome.storage.local.set(initial);
 }

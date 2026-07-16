@@ -2,6 +2,10 @@ export type QuoteCategory = "accumulation" | "domestic" | "international" | "ret
 export type PriceDirection = "up" | "down" | "flat";
 export type RefreshInterval = 10 | 30;
 export type AlertDirection = "above" | "below";
+export type AlertKind = "price" | "costPercent";
+export type AlertIntent = "buy" | "takeProfit" | "costChange";
+export type AlertNotifyMode = "once" | "cross";
+export type TransactionType = "buy" | "sell";
 
 export interface Quote {
   id: string;
@@ -58,9 +62,31 @@ export interface PriceAlert {
   quoteName: string;
   direction: AlertDirection;
   threshold: number;
+  kind?: AlertKind;
+  intent?: AlertIntent;
+  notifyMode?: AlertNotifyMode;
   enabled: boolean;
   conditionMet: boolean;
+  completed?: boolean;
   createdAt: number;
+}
+
+export interface HoldingTransaction {
+  id: string;
+  quoteId: string;
+  quoteName: string;
+  type: TransactionType;
+  grams: number;
+  price: number;
+  createdAt: number;
+}
+
+export interface HoldingPosition {
+  quoteId: string;
+  quoteName: string;
+  grams: number;
+  cost: number;
+  averageCost: number;
 }
 
 export interface RefreshResult {

@@ -3,10 +3,12 @@ import {
   getHistory,
   getSettings,
   getSnapshot,
+  getTransactions,
   initializeStorage,
   saveAlerts,
   STORAGE_KEYS,
 } from "./storage";
+import { calculatePositions } from "./holdings";
 import type {
   GoldApiPayload,
   HistoryPoint,
@@ -126,22 +128,33 @@ async function updateHistory(quotes: Quote[], fetchedAt: number): Promise<QuoteH
 }
 
 async function evaluateAlerts(quotes: Quote[]): Promise<void> {
-  const alerts = await getAlerts();
+  const [alerts, transactions] = await Promise.all([getAlerts(), getTransactions()]);
   if (alerts.length === 0) return;
+  const positions = calculatePositions(transactions);
 
   let changed = false;
   for (const alert of alerts) {
-    if (!alert.enabled) continue;
+    if (!alert.enabled || alert.completed) continue;
     const quote = quotes.find((item) => item.id === alert.quoteId);
     if (!quote) continue;
 
+    const kind = alert.kind ?? "price";
+    const position = positions.find((item) => item.quoteId === alert.quoteId);
+    if (kind === "costPercent" && !position) continue;
+    const currentValue = kind === "costPercent" && position
+      ? ((quote.price - position.averageCost) / position.averageCost) * 100
+      : quote.price;
     const conditionMet = alert.direction === "above"
-      ? quote.price >= alert.threshold
-      : quote.price <= alert.threshold;
+      ? currentValue >= alert.threshold
+      : currentValue <= alert.threshold;
 
     if (conditionMet && !alert.conditionMet) {
-      await notifyAlert(alert, quote);
+      await notifyAlert(alert, quote, currentValue);
       alert.conditionMet = true;
+      if (alert.notifyMode === "once") {
+        alert.completed = true;
+        alert.enabled = false;
+      }
       changed = true;
     } else if (!conditionMet && alert.conditionMet) {
       alert.conditionMet = false;
@@ -152,15 +165,31 @@ async function evaluateAlerts(quotes: Quote[]): Promise<void> {
   if (changed) await saveAlerts(alerts);
 }
 
-async function notifyAlert(alert: PriceAlert, quote: Quote): Promise<void> {
+async function notifyAlert(alert: PriceAlert, quote: Quote, currentValue: number): Promise<void> {
+  if (alert.kind === "costPercent") {
+    const directionText = alert.direction === "above" ? "达到收益目标" : "达到回撤提醒";
+    await chrome.notifications.create(`gold-alert-${alert.id}-${Date.now()}`, {
+      type: "basic",
+      iconUrl: "icons/icon128.png",
+      title: `${quote.name} 持仓提醒`,
+      message: `当前相对成本 ${formatSignedPercent(currentValue)}，已${directionText} ${formatSignedPercent(alert.threshold)}`,
+      priority: 2,
+    });
+    return;
+  }
   const directionText = alert.direction === "above" ? "达到或高于" : "达到或低于";
+  const intentText = alert.intent === "buy" ? "目标买入价" : alert.intent === "takeProfit" ? "目标止盈价" : "目标价格";
   await chrome.notifications.create(`gold-alert-${alert.id}-${Date.now()}`, {
     type: "basic",
     iconUrl: "icons/icon128.png",
     title: `${quote.name} 到价提醒`,
-    message: `当前 ${formatPrice(quote.price)} ${quote.unit}，已${directionText} ${formatPrice(alert.threshold)}`,
+    message: `当前 ${formatPrice(quote.price)} ${quote.unit}，${intentText}已${directionText} ${formatPrice(alert.threshold)}`,
     priority: 2,
   });
+}
+
+function formatSignedPercent(value: number): string {
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
 async function updateBadge(snapshot?: QuoteSnapshot | null): Promise<void> {

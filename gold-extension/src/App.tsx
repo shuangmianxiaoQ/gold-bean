@@ -6,7 +6,10 @@ import {
   IconBellPlus,
   IconChevronRight,
   IconClock,
+  IconCoins,
+  IconPlus,
   IconRefresh,
+  IconReceipt,
   IconSettings,
   IconTrash,
   IconTrendingUp,
@@ -18,14 +21,20 @@ import {
   getHistory,
   getSettings,
   getSnapshot,
+  getTransactions,
   saveAlerts,
   saveSettings,
+  saveTransactions,
   STORAGE_KEYS,
 } from "./storage";
+import { calculatePositions } from "./holdings";
 import { TrendChart } from "./TrendChart";
 import type {
   AlertDirection,
+  AlertIntent,
   ExtensionSettings,
+  HoldingPosition,
+  HoldingTransaction,
   PriceAlert,
   PriceDirection,
   Quote,
@@ -36,7 +45,7 @@ import type {
 } from "./types";
 import { DEFAULT_SETTINGS, QUOTE_ORDER } from "./types";
 
-type View = "list" | "detail" | "settings" | "alerts";
+type View = "list" | "detail" | "settings" | "alerts" | "holdings";
 type ChartPeriod = "hour" | "day" | "week";
 
 const categoryLabels: Record<QuoteCategory, string> = {
@@ -51,6 +60,7 @@ export function App() {
   const [history, setHistory] = useState<QuoteHistory>({});
   const [settings, setSettings] = useState<ExtensionSettings>(DEFAULT_SETTINGS);
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [transactions, setTransactions] = useState<HoldingTransaction[]>([]);
   const [view, setView] = useState<View>("list");
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,16 +68,18 @@ export function App() {
   const refreshInFlight = useRef(false);
 
   const loadStorage = useCallback(async () => {
-    const [storedSnapshot, storedHistory, storedSettings, storedAlerts] = await Promise.all([
+    const [storedSnapshot, storedHistory, storedSettings, storedAlerts, storedTransactions] = await Promise.all([
       getSnapshot(),
       getHistory(),
       getSettings(),
       getAlerts(),
+      getTransactions(),
     ]);
     setSnapshot(storedSnapshot);
     setHistory(storedHistory);
     setSettings(storedSettings);
     setAlerts(storedAlerts);
+    setTransactions(storedTransactions);
   }, []);
 
   const refresh = useCallback(async (force = false) => {
@@ -95,6 +107,7 @@ export function App() {
       if (changes[STORAGE_KEYS.history]?.newValue) setHistory(changes[STORAGE_KEYS.history].newValue as QuoteHistory);
       if (changes[STORAGE_KEYS.settings]?.newValue) setSettings(changes[STORAGE_KEYS.settings].newValue as ExtensionSettings);
       if (changes[STORAGE_KEYS.alerts]?.newValue) setAlerts(changes[STORAGE_KEYS.alerts].newValue as PriceAlert[]);
+      if (changes[STORAGE_KEYS.transactions]?.newValue) setTransactions(changes[STORAGE_KEYS.transactions].newValue as HoldingTransaction[]);
     };
     chrome.storage.onChanged.addListener(listener);
     return () => chrome.storage.onChanged.removeListener(listener);
@@ -111,6 +124,7 @@ export function App() {
   }, [snapshot]);
 
   const selectedQuote = quotes.find((quote) => quote.id === selectedQuoteId) ?? null;
+  const positions = useMemo(() => calculatePositions(transactions), [transactions]);
 
   function openDetail(quoteId: string) {
     setSelectedQuoteId(quoteId);
@@ -131,6 +145,7 @@ export function App() {
           onOpenDetail={openDetail}
           onOpenSettings={() => setView("settings")}
           onOpenAlerts={() => setView("alerts")}
+          onOpenHoldings={() => setView("holdings")}
         />
       )}
       {view === "detail" && selectedQuote && (
@@ -139,6 +154,7 @@ export function App() {
           snapshot={snapshot}
           points={history[selectedQuote.id] ?? []}
           alerts={alerts.filter((alert) => alert.quoteId === selectedQuote.id)}
+          position={positions.find((position) => position.quoteId === selectedQuote.id)}
           onBack={() => setView("list")}
           onSaveAlert={async (alert) => {
             const updated = [...alerts, alert];
@@ -168,6 +184,19 @@ export function App() {
           }}
         />
       )}
+      {view === "holdings" && (
+        <HoldingsView
+          quotes={quotes}
+          positions={positions}
+          transactions={transactions}
+          onBack={() => setView("list")}
+          onOpenDetail={openDetail}
+          onChangeTransactions={async (nextTransactions) => {
+            setTransactions(nextTransactions);
+            await saveTransactions(nextTransactions);
+          }}
+        />
+      )}
     </main>
   );
 }
@@ -183,6 +212,7 @@ interface ListViewProps {
   onOpenDetail: (quoteId: string) => void;
   onOpenSettings: () => void;
   onOpenAlerts: () => void;
+  onOpenHoldings: () => void;
 }
 
 function ListView(props: ListViewProps) {
@@ -203,6 +233,9 @@ function ListView(props: ListViewProps) {
           </div>
         </div>
         <div className="topbar-actions">
+          <button className="icon-button" onClick={props.onOpenHoldings} aria-label="持仓与收益">
+            <IconCoins size={18} />
+          </button>
           <button className="icon-button" onClick={props.onOpenAlerts} aria-label="到价提醒">
             <IconBell size={18} />
             {props.alerts.filter((alert) => alert.enabled).length > 0 && <i className="notification-dot" />}
@@ -300,27 +333,37 @@ interface DetailViewProps {
   snapshot: QuoteSnapshot | null;
   points: { time: number; price: number }[];
   alerts: PriceAlert[];
+  position?: HoldingPosition;
   onBack: () => void;
   onSaveAlert: (alert: PriceAlert) => Promise<void>;
 }
 
-function DetailView({ quote, snapshot, points, alerts, onBack, onSaveAlert }: DetailViewProps) {
+function DetailView({ quote, snapshot, points, alerts, position, onBack, onSaveAlert }: DetailViewProps) {
   const isDaily = quote.id === "shuibei_gold";
   const [period, setPeriod] = useState<ChartPeriod>(isDaily ? "week" : "hour");
   const [showAlertForm, setShowAlertForm] = useState(false);
+  const [alertIntent, setAlertIntent] = useState<AlertIntent>("buy");
   const [alertDirection, setAlertDirection] = useState<AlertDirection>("below");
   const [threshold, setThreshold] = useState(quote.price.toFixed(2));
+  const [percentThreshold, setPercentThreshold] = useState("5");
+  const [notifyMode, setNotifyMode] = useState<"once" | "cross">("once");
   const direction = getDirection(quote, snapshot);
 
   async function createAlert() {
-    const numericThreshold = Number.parseFloat(threshold);
+    const numericThreshold = alertIntent === "costChange"
+      ? Number.parseFloat(percentThreshold) * (alertDirection === "below" ? -1 : 1)
+      : Number.parseFloat(threshold);
     if (!Number.isFinite(numericThreshold)) return;
+    if (alertIntent === "costChange" && !position) return;
     await onSaveAlert({
       id: crypto.randomUUID(),
       quoteId: quote.id,
       quoteName: quote.name,
       direction: alertDirection,
       threshold: numericThreshold,
+      kind: alertIntent === "costChange" ? "costPercent" : "price",
+      intent: alertIntent,
+      notifyMode,
       enabled: true,
       conditionMet: false,
       createdAt: Date.now(),
@@ -375,18 +418,38 @@ function DetailView({ quote, snapshot, points, alerts, onBack, onSaveAlert }: De
         {showAlertForm ? (
           <div className="alert-form">
             <div className="alert-form-title">
-              <strong>设置到价提醒</strong>
+              <strong>设置交易提醒</strong>
               <button className="icon-button small" onClick={() => setShowAlertForm(false)}><IconX size={16} /></button>
             </div>
-            <div className="segmented">
-              <button className={alertDirection === "below" ? "active" : ""} onClick={() => setAlertDirection("below")}>低于或等于</button>
-              <button className={alertDirection === "above" ? "active" : ""} onClick={() => setAlertDirection("above")}>高于或等于</button>
+            <div className="segmented triple">
+              <button className={alertIntent === "buy" ? "active" : ""} onClick={() => { setAlertIntent("buy"); setAlertDirection("below"); }}>买入价</button>
+              <button className={alertIntent === "takeProfit" ? "active" : ""} onClick={() => { setAlertIntent("takeProfit"); setAlertDirection("above"); }}>止盈价</button>
+              <button className={alertIntent === "costChange" ? "active" : ""} disabled={!position} onClick={() => { setAlertIntent("costChange"); setAlertDirection("above"); }}>成本涨跌</button>
             </div>
-            <label className="price-input">
-              <span>{quote.unit.startsWith("美元") ? "$" : "¥"}</span>
-              <input aria-label="提醒目标价格" value={threshold} inputMode="decimal" onChange={(event) => setThreshold(event.target.value)} />
-              <small>{quote.unit.includes("/克") ? "元/克" : "美元/盎司"}</small>
-            </label>
+            {alertIntent === "costChange" ? (
+              <>
+                <div className="segmented alert-direction">
+                  <button className={alertDirection === "above" ? "active" : ""} onClick={() => setAlertDirection("above")}>盈利达到</button>
+                  <button className={alertDirection === "below" ? "active" : ""} onClick={() => setAlertDirection("below")}>回撤达到</button>
+                </div>
+                <label className="price-input">
+                  <span>%</span>
+                  <input aria-label="成本涨跌幅" value={percentThreshold} inputMode="decimal" onChange={(event) => setPercentThreshold(event.target.value)} />
+                  <small>平均成本 {position?.averageCost.toFixed(2)}</small>
+                </label>
+              </>
+            ) : (
+              <label className="price-input">
+                <span>{quote.unit.startsWith("美元") ? "$" : "¥"}</span>
+                <input aria-label="提醒目标价格" value={threshold} inputMode="decimal" onChange={(event) => setThreshold(event.target.value)} />
+                <small>{quote.unit.includes("/克") ? "元/克" : "美元/盎司"}</small>
+              </label>
+            )}
+            <div className="segmented notify-mode">
+              <button className={notifyMode === "once" ? "active" : ""} onClick={() => setNotifyMode("once")}>仅提醒一次</button>
+              <button className={notifyMode === "cross" ? "active" : ""} onClick={() => setNotifyMode("cross")}>每次重新穿越</button>
+            </div>
+            {!position && <p className="form-hint">添加该产品持仓后，可设置相对成本涨跌提醒。</p>}
             <button className="primary-button" onClick={() => void createAlert()}>保存提醒</button>
           </div>
         ) : (
@@ -396,6 +459,144 @@ function DetailView({ quote, snapshot, points, alerts, onBack, onSaveAlert }: De
             <IconChevronRight size={18} />
           </button>
         )}
+      </section>
+    </>
+  );
+}
+
+function HoldingsView({ quotes, positions, transactions, onBack, onOpenDetail, onChangeTransactions }: {
+  quotes: Quote[];
+  positions: HoldingPosition[];
+  transactions: HoldingTransaction[];
+  onBack: () => void;
+  onOpenDetail: (quoteId: string) => void;
+  onChangeTransactions: (transactions: HoldingTransaction[]) => Promise<void>;
+}) {
+  const supportedQuotes = quotes.filter((quote) => quote.unit === "元/克");
+  const defaultQuote = supportedQuotes.find((quote) => quote.category === "accumulation") ?? supportedQuotes[0];
+  const [showForm, setShowForm] = useState(transactions.length === 0);
+  const [quoteId, setQuoteId] = useState(defaultQuote?.id ?? "jd_zs_accumulation");
+  const [type, setType] = useState<"buy" | "sell">("buy");
+  const [grams, setGrams] = useState("");
+  const [price, setPrice] = useState(defaultQuote?.price.toFixed(2) ?? "");
+  const [formError, setFormError] = useState<string | null>(null);
+  const selectedQuote = supportedQuotes.find((quote) => quote.id === quoteId) ?? defaultQuote;
+  const selectedPosition = positions.find((position) => position.quoteId === quoteId);
+
+  const totals = positions.reduce((summary, position) => {
+    const quote = quotes.find((item) => item.id === position.quoteId);
+    const marketValue = position.grams * (quote?.price ?? position.averageCost);
+    summary.cost += position.cost;
+    summary.marketValue += marketValue;
+    return summary;
+  }, { cost: 0, marketValue: 0 });
+  const totalProfit = totals.marketValue - totals.cost;
+  const totalRate = totals.cost > 0 ? totalProfit / totals.cost * 100 : 0;
+
+  function changeQuote(nextQuoteId: string) {
+    setQuoteId(nextQuoteId);
+    const quote = supportedQuotes.find((item) => item.id === nextQuoteId);
+    if (quote) setPrice(quote.price.toFixed(2));
+    setFormError(null);
+  }
+
+  async function addTransaction() {
+    const numericGrams = Number.parseFloat(grams);
+    const numericPrice = Number.parseFloat(price);
+    if (!selectedQuote || !Number.isFinite(numericGrams) || numericGrams <= 0 || !Number.isFinite(numericPrice) || numericPrice <= 0) {
+      setFormError("请输入有效的克数和成交价");
+      return;
+    }
+    if (type === "sell" && numericGrams > (selectedPosition?.grams ?? 0) + 0.000001) {
+      setFormError(`最多可卖出 ${(selectedPosition?.grams ?? 0).toFixed(4)} 克`);
+      return;
+    }
+    const next = [...transactions, {
+      id: crypto.randomUUID(),
+      quoteId: selectedQuote.id,
+      quoteName: selectedQuote.name,
+      type,
+      grams: numericGrams,
+      price: numericPrice,
+      createdAt: Date.now(),
+    } satisfies HoldingTransaction];
+    await onChangeTransactions(next);
+    setGrams("");
+    setFormError(null);
+    setShowForm(false);
+  }
+
+  return (
+    <>
+      <SubHeader title="持仓与收益" onBack={onBack} />
+      <section className="content holdings-content">
+        <div className="portfolio-card">
+          <span className="eyebrow">持仓总市值</span>
+          <strong>{formatCurrency(totals.marketValue)}</strong>
+          <div className="portfolio-stats">
+            <div><span>持仓成本</span><b>{formatCurrency(totals.cost)}</b></div>
+            <div><span>浮动盈亏</span><b className={profitClass(totalProfit)}>{signedMoney(totalProfit)}</b></div>
+            <div><span>收益率</span><b className={profitClass(totalProfit)}>{signed(totalRate)}%</b></div>
+          </div>
+        </div>
+
+        <div className="section-heading">
+          <div><strong>我的持仓</strong><span>{positions.length > 0 ? `${positions.length} 个产品` : "添加第一笔买入"}</span></div>
+          <button className="mini-action" onClick={() => setShowForm((value) => !value)}><IconPlus size={15} />记一笔</button>
+        </div>
+
+        {showForm && (
+          <div className="transaction-form">
+            <div className="segmented">
+              <button className={type === "buy" ? "active" : ""} onClick={() => { setType("buy"); setFormError(null); }}>买入</button>
+              <button className={type === "sell" ? "active" : ""} onClick={() => { setType("sell"); setFormError(null); }}>卖出</button>
+            </div>
+            <select className="select-input" value={quoteId} onChange={(event) => changeQuote(event.target.value)}>
+              {supportedQuotes.map((quote) => <option key={quote.id} value={quote.id}>{quote.name}</option>)}
+            </select>
+            <div className="transaction-inputs">
+              <label><span>克数</span><input value={grams} inputMode="decimal" placeholder="0.0000" onChange={(event) => setGrams(event.target.value)} /><small>克</small></label>
+              <label><span>成交价</span><input value={price} inputMode="decimal" placeholder="0.00" onChange={(event) => setPrice(event.target.value)} /><small>元/克</small></label>
+            </div>
+            {type === "sell" && <p className="form-hint">当前可卖出 {(selectedPosition?.grams ?? 0).toFixed(4)} 克</p>}
+            {formError && <p className="form-error">{formError}</p>}
+            <button className="primary-button" onClick={() => void addTransaction()}>保存{type === "buy" ? "买入" : "卖出"}记录</button>
+          </div>
+        )}
+
+        {positions.length === 0 ? (
+          !showForm && <div className="holding-empty"><IconReceipt size={25} /><strong>还没有持仓记录</strong><span>点击“记一笔”录入积存金买入</span></div>
+        ) : (
+          <div className="position-list">
+            {positions.map((position) => {
+              const quote = quotes.find((item) => item.id === position.quoteId);
+              const marketValue = position.grams * (quote?.price ?? position.averageCost);
+              const profit = marketValue - position.cost;
+              const rate = position.cost > 0 ? profit / position.cost * 100 : 0;
+              return (
+                <button className="position-card" key={position.quoteId} onClick={() => onOpenDetail(position.quoteId)}>
+                  <div className="position-title"><strong>{position.quoteName}</strong><IconChevronRight size={16} /></div>
+                  <div className="position-value"><strong>{formatCurrency(marketValue)}</strong><span className={profitClass(profit)}>{signedMoney(profit)} · {signed(rate)}%</span></div>
+                  <div className="position-meta"><span>{position.grams.toFixed(4)} 克</span><span>成本 {position.averageCost.toFixed(2)}</span><span>现价 {quote?.price.toFixed(2) ?? "--"}</span></div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="section-heading transaction-heading">
+          <div><strong>交易明细</strong><span>移动平均成本</span></div>
+        </div>
+        <div className="transaction-list">
+          {[...transactions].sort((a, b) => b.createdAt - a.createdAt).map((transaction) => (
+            <div className="transaction-item" key={transaction.id}>
+              <div className={`transaction-badge ${transaction.type}`}>{transaction.type === "buy" ? "买" : "卖"}</div>
+              <div><strong>{transaction.quoteName}</strong><span><IconClock size={12} />{formatTransactionTime(transaction.createdAt)}</span></div>
+              <div><strong>{transaction.grams.toFixed(4)} 克</strong><span>¥{transaction.price.toFixed(2)}/克</span></div>
+              <button className="delete-button" aria-label="删除交易记录" onClick={() => void onChangeTransactions(transactions.filter((item) => item.id !== transaction.id))}><IconTrash size={16} /></button>
+            </div>
+          ))}
+        </div>
       </section>
     </>
   );
@@ -458,7 +659,7 @@ function SettingsView({ quotes, settings, onBack, onChange }: {
 
         <div className="about-card">
           <div className="brand-mark small-mark">Au</div>
-          <div><strong>金豆行情 v0.1.1</strong><span>数据仅供参考，以实际交易报价为准</span></div>
+          <div><strong>金豆行情 v0.2.0</strong><span>数据仅供参考，以实际交易报价为准</span></div>
         </div>
       </section>
     </>
@@ -484,14 +685,17 @@ function AlertsView({ alerts, onBack, onChange }: {
           <div className="alert-item" key={alert.id}>
             <div>
               <strong>{alert.quoteName}</strong>
-              <span>{alert.direction === "above" ? "高于或等于" : "低于或等于"} <b>{alert.threshold.toFixed(2)}</b></span>
+              <span>{alertDescription(alert)} <b>{alert.kind === "costPercent" ? `${signed(alert.threshold)}%` : alert.threshold.toFixed(2)}</b></span>
+              <small>{alert.completed ? "已完成" : alert.notifyMode === "once" ? "仅提醒一次" : "每次重新穿越提醒"}</small>
             </div>
             <label className="switch">
               <input
                 type="checkbox"
                 aria-label={`${alert.quoteName}提醒开关`}
                 checked={alert.enabled}
-                onChange={() => void onChange(alerts.map((item) => item.id === alert.id ? { ...item, enabled: !item.enabled } : item))}
+                onChange={() => void onChange(alerts.map((item) => item.id === alert.id
+                  ? { ...item, enabled: !item.enabled, completed: item.enabled ? item.completed : false, conditionMet: item.enabled ? item.conditionMet : false }
+                  : item))}
               />
               <i />
             </label>
@@ -583,4 +787,35 @@ function formatTime(timestamp?: number): string {
 
 function signed(value: number): string {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+function formatCurrency(value: number): string {
+  return `¥${value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function signedMoney(value: number): string {
+  return `${value >= 0 ? "+" : "-"}¥${Math.abs(value).toFixed(2)}`;
+}
+
+function profitClass(value: number): "profit-up" | "profit-down" | "profit-flat" {
+  if (value > 0.005) return "profit-up";
+  if (value < -0.005) return "profit-down";
+  return "profit-flat";
+}
+
+function formatTransactionTime(timestamp: number): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(timestamp);
+}
+
+function alertDescription(alert: PriceAlert): string {
+  if (alert.kind === "costPercent") return alert.direction === "above" ? "盈利达到" : "回撤达到";
+  if (alert.intent === "buy") return "目标买入价";
+  if (alert.intent === "takeProfit") return "目标止盈价";
+  return alert.direction === "above" ? "高于或等于" : "低于或等于";
 }
