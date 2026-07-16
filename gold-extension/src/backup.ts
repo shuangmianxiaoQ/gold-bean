@@ -11,7 +11,7 @@ export function createBackupDocument(data: PersonalData): BackupDocument {
   return {
     format: "gold-bean-backup",
     version: 1,
-    appVersion: "0.4.1",
+    appVersion: "0.4.2",
     exportedAt: Date.now(),
     data,
   };

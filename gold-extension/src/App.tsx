@@ -717,7 +717,7 @@ function SettingsView({ quotes, settings, onBack, onChange, onRestored }: {
       <SubHeader title="设置" onBack={onBack} />
       <section className="content settings-content">
         <SettingGroup title="弹窗刷新周期" description="弹窗关闭后固定每30秒后台检查">
-          <div className="segmented">
+          <div className="segmented triple">
             {[10, 30, 60].map((seconds) => (
               <button
                 key={seconds}
@@ -740,13 +740,10 @@ function SettingsView({ quotes, settings, onBack, onChange, onRestored }: {
           </select>
         </SettingGroup>
 
-        <SettingGroup title="行情显示" description="隐藏后仍会在后台获取行情和执行提醒">
-          <div className="visibility-toolbar">
-            <span>已显示 {quotes.filter((quote) => !settings.hiddenQuoteIds.includes(quote.id)).length}/{quotes.length}</span>
-            {settings.hiddenQuoteIds.length > 0 && (
-              <button onClick={() => void onChange({ ...settings, hiddenQuoteIds: [] })}>全部显示</button>
-            )}
-          </div>
+        <SettingGroup
+          title={`行情显示（已显示 ${quotes.filter((quote) => !settings.hiddenQuoteIds.includes(quote.id)).length}/${quotes.length}）`}
+          description="隐藏后仍会在后台获取行情和执行提醒"
+        >
           <div className="visibility-grid">
             {quotes.map((quote) => {
               const visible = !settings.hiddenQuoteIds.includes(quote.id);
@@ -887,8 +884,6 @@ function metricEntries(quote: Quote): [string, string][] {
   const candidates: [string, number | undefined][] = [
     ["最高价", quote.high],
     ["最低价", quote.low],
-    ["卖出价", quote.sellPrice],
-    ["昨日价格", quote.yesterdayPrice],
   ];
   return candidates.filter((entry): entry is [string, number] => entry[1] !== undefined)
     .slice(0, 3)
