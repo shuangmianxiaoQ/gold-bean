@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#24282c"/>
+      <stop offset="1" stop-color="#101214"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F4D783"/>
+      <stop offset="0.5" stop-color="#D8A84E"/>
+      <stop offset="1" stop-color="#9B6D27"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#bg)"/>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="none" stroke="#D8A84E" stroke-opacity=".22" stroke-width="4"/>
+  <circle cx="64" cy="64" r="39" fill="url(#gold)"/>
+  <circle cx="64" cy="64" r="32" fill="none" stroke="#2B210F" stroke-opacity=".35" stroke-width="2"/>
+  <text x="64" y="73" text-anchor="middle" font-family="Georgia,serif" font-size="34" font-weight="700" fill="#20180A">Au</text>
+</svg>

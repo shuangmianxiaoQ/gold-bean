@@ -1,0 +1,26 @@
+# Dependencies and build output
+node_modules/
+gold-extension/node_modules/
+gold-extension/dist/
+*.tsbuildinfo
+worker-configuration.d.ts
+
+# Local credentials and tooling state
+.config/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+
+# Workspace-only files
+.agents/
+.codex/
+upload/
+*.zip
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
