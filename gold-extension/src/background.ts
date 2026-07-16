@@ -18,7 +18,7 @@ import type {
   RefreshResult,
 } from "./types";
 
-const API_URL = "https://gold-api.961216wang.workers.dev/v1/quotes";
+const API_URL = "https://gold-api.pixidou.com/v1/quotes";
 const ALARM_NAME = "refresh-gold-quotes";
 const BACKGROUND_INTERVAL_MINUTES = 0.5;
 const REQUEST_TIMEOUT_MS = 20_000;

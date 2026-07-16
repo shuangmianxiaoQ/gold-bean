@@ -38,6 +38,6 @@ npm run smoke
 - `storage`：保存设置、提醒和本地趋势数据。
 - `alarms`：每 30 秒后台检查行情。
 - `notifications`：发送到价提醒。
-- `gold-api.961216wang.workers.dev`：获取聚合金价。
+- `gold-api.pixidou.com`：获取聚合金价。
 
 行情仅供参考，以实际交易报价为准。

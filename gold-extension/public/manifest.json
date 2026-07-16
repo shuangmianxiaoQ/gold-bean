@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "金豆行情",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "轻量实时金价监控、趋势查看与到价提醒。",
   "action": {
     "default_popup": "popup.html",
@@ -18,7 +18,7 @@
     "type": "module"
   },
   "permissions": ["storage", "alarms", "notifications"],
-  "host_permissions": ["https://gold-api.961216wang.workers.dev/*"],
+  "host_permissions": ["https://gold-api.pixidou.com/*"],
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",

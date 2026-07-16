@@ -458,7 +458,7 @@ function SettingsView({ quotes, settings, onBack, onChange }: {
 
         <div className="about-card">
           <div className="brand-mark small-mark">Au</div>
-          <div><strong>金豆行情 v0.1.0</strong><span>数据仅供参考，以实际交易报价为准</span></div>
+          <div><strong>金豆行情 v0.1.1</strong><span>数据仅供参考，以实际交易报价为准</span></div>
         </div>
       </section>
     </>
