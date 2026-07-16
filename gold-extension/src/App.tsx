@@ -300,7 +300,6 @@ function FocusCard({ quote, snapshot, onClick }: { quote: Quote; snapshot: Quote
   const direction = getDirection(quote, snapshot);
   return (
     <button className="focus-card" onClick={onClick}>
-      <span className="eyebrow">重点关注</span>
       <strong className="focus-name">{quote.id === "jd_zs_accumulation" ? "浙商积存金" : "伦敦现货"}</strong>
       <span className="focus-price">{quote.unit.startsWith("美元") ? "$" : "¥"}{formatQuotePrice(quote)}</span>
       <span className={`direction-text ${direction}`}>{directionLabel(quote, snapshot)}</span>
@@ -413,22 +412,23 @@ function DetailView({ quote, snapshot, points, alerts, position, onBack, onSaveA
           {isDaily && <p className="chart-note">实物参考价每天保存一个价格点，历史数据会从安装后逐步积累。</p>}
         </div>
 
-        <div className="metrics-grid">
-          {metricEntries(quote).map(([label, value]) => (
-            <div className="metric" key={label}>
-              <span>{label}</span>
-              <strong>{value}</strong>
-            </div>
-          ))}
-        </div>
+        {!quote.aggregation && (
+          <div className="metrics-grid">
+            {metricEntries(quote).map(([label, value]) => (
+              <div className="metric" key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+        )}
 
         {quote.aggregation && (
           <section className="sample-card">
             <div className="sample-heading">
-              <div><span className="eyebrow">聚合样本</span><strong>{quote.aggregation.sampleCount} 家代表性报价</strong></div>
+              <span className="eyebrow">聚合样本</span>
               <span>中位数 ¥{formatQuotePrice(quote)}</span>
             </div>
-            <div className="sample-range"><span>最低 ¥{formatMetric(quote.aggregation.min)}</span><span>最高 ¥{formatMetric(quote.aggregation.max)}</span></div>
             <div className="sample-list">
               {quote.aggregation.samples.map((sample) => (
                 <div key={sample.name}><span>{sample.name}</span><strong>¥{formatMetric(sample.price)}</strong></div>
@@ -437,7 +437,7 @@ function DetailView({ quote, snapshot, points, alerts, position, onBack, onSaveA
           </section>
         )}
 
-        {showAlertForm ? (
+        {!isDaily && (showAlertForm ? (
           <div className="alert-form">
             <div className="alert-form-title">
               <strong>设置交易提醒</strong>
@@ -480,7 +480,7 @@ function DetailView({ quote, snapshot, points, alerts, position, onBack, onSaveA
             <span><strong>设置到价提醒</strong><small>{alerts.length > 0 ? `当前已有 ${alerts.length} 个提醒` : "价格穿越目标线时通知"}</small></span>
             <IconChevronRight size={18} />
           </button>
-        )}
+        ))}
       </section>
     </>
   );
@@ -685,7 +685,7 @@ function SettingsView({ quotes, settings, onBack, onChange }: {
 
         <div className="about-card">
           <div className="brand-mark small-mark">Au</div>
-          <div><strong>金豆行情 v0.3.0</strong><span>数据仅供参考，以实际交易报价为准</span></div>
+          <div><strong>金豆行情 v0.3.1</strong><span>数据仅供参考，以实际交易报价为准</span></div>
         </div>
       </section>
     </>

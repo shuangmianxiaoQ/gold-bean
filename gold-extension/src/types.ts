@@ -119,8 +119,8 @@ export const QUOTE_ORDER = [
   "au9999",
   "london_gold",
   "new_york_gold",
-  "shuibei_gold",
   "retail_store_gold",
   "bank_investment_bar",
+  "shuibei_gold",
   "gold_recycle",
 ];

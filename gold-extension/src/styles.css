@@ -113,11 +113,11 @@ button { color: inherit; }
   box-shadow: 0 8px 22px rgba(0,0,0,.2);
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 .focus-card:hover { border-color: rgba(216,168,78,.4); }
 .focus-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 620; }
-.focus-price { margin-top: 5px; color: var(--gold-soft); font-size: 21px; line-height: 1; font-weight: 680; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.focus-price { margin-top: 3px; color: var(--gold-soft); font-size: 21px; line-height: 1; font-weight: 680; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
 
 .hero-card {
   width: 100%;
@@ -258,13 +258,11 @@ button { color: inherit; }
 .chart-note { margin: 4px 3px 0; color: var(--muted-2); font-size: 9px; }
 
 .sample-card { margin-top: 11px; padding: 13px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-.sample-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
-.sample-heading > div { display: flex; flex-direction: column; gap: 4px; }
-.sample-heading strong { font-size: 12px; }
+.sample-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .sample-heading > span { color: var(--gold-soft); font-size: 10px; font-variant-numeric: tabular-nums; }
-.sample-range { margin-top: 10px; padding: 8px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; color: var(--muted); font-size: 9px; }
-.sample-list { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; }
-.sample-list > div { min-width: 0; height: 34px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.sample-heading > .eyebrow { color: var(--muted); }
+.sample-list { margin-top: 9px; padding-top: 3px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; }
+.sample-list > div { min-width: 0; height: 34px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: minmax(58px, 72px) auto; justify-content: start; align-items: center; gap: 7px; }
 .sample-list > div:nth-last-child(-n+2) { border-bottom: 0; }
 .sample-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 9px; }
 .sample-list strong { color: #e7e2d7; font-size: 10px; font-variant-numeric: tabular-nums; }
