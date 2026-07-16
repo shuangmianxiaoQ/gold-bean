@@ -5,14 +5,17 @@ import {
   IconBell,
   IconBellPlus,
   IconChevronRight,
+  IconCloudCheck,
   IconClock,
   IconCoins,
+  IconDownload,
   IconPlus,
   IconRefresh,
   IconReceipt,
   IconSettings,
   IconTrash,
   IconTrendingUp,
+  IconUpload,
   IconX,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,17 +24,23 @@ import {
   getHistory,
   getSettings,
   getSnapshot,
+  getPersonalData,
+  getSyncStatus,
   getTransactions,
+  reconcilePersonalSync,
+  restorePersonalData,
   saveAlerts,
   saveSettings,
   saveTransactions,
   STORAGE_KEYS,
 } from "./storage";
+import { createBackupDocument, parseBackupDocument } from "./backup";
 import { calculatePositions } from "./holdings";
 import { TrendChart } from "./TrendChart";
 import type {
   AlertDirection,
   AlertIntent,
+  BackupDocument,
   ExtensionSettings,
   HoldingPosition,
   HoldingTransaction,
@@ -42,6 +51,7 @@ import type {
   QuoteHistory,
   QuoteSnapshot,
   RefreshResult,
+  SyncStatus,
 } from "./types";
 import { DEFAULT_SETTINGS, QUOTE_ORDER } from "./types";
 
@@ -178,6 +188,7 @@ export function App() {
             setSettings(nextSettings);
             await saveSettings(nextSettings);
           }}
+          onRestored={loadStorage}
         />
       )}
       {view === "alerts" && (
@@ -628,15 +639,74 @@ function HoldingsView({ quotes, positions, transactions, onBack, onOpenDetail, o
   );
 }
 
-function SettingsView({ quotes, settings, onBack, onChange }: {
+function SettingsView({ quotes, settings, onBack, onChange, onRestored }: {
   quotes: Quote[];
   settings: ExtensionSettings;
   onBack: () => void;
   onChange: (settings: ExtensionSettings) => Promise<void>;
+  onRestored: () => Promise<void>;
 }) {
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: "idle" });
+  const [pendingBackup, setPendingBackup] = useState<BackupDocument | null>(null);
+  const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    void getSyncStatus().then(setSyncStatus);
+    const listener = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === "local" && changes[STORAGE_KEYS.syncStatus]?.newValue) {
+        setSyncStatus(changes[STORAGE_KEYS.syncStatus].newValue as SyncStatus);
+      }
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
+  }, []);
+
+  async function exportBackup() {
+    const document = createBackupDocument(await getPersonalData());
+    const blob = new Blob([JSON.stringify(document, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = window.document.createElement("a");
+    link.href = url;
+    link.download = `gold-bean-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setBackupMessage("备份已导出");
+    setBackupError(null);
+  }
+
+  async function selectBackup(file?: File) {
+    if (!file) return;
+    try {
+      setPendingBackup(parseBackupDocument(await file.text()));
+      setBackupMessage(null);
+      setBackupError(null);
+    } catch (error) {
+      setPendingBackup(null);
+      setBackupError(error instanceof Error ? error.message : "无法读取备份");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function importBackup(mode: "merge" | "replace") {
+    if (!pendingBackup) return;
+    await restorePersonalData(pendingBackup.data, mode);
+    await onRestored();
+    setBackupMessage(mode === "merge" ? "备份已合并并同步" : "备份已覆盖恢复并同步");
+    setBackupError(null);
+    setPendingBackup(null);
+  }
+
+  async function syncNow() {
+    await reconcilePersonalSync();
+    setSyncStatus(await getSyncStatus());
+  }
+
   return (
     <>
-      <SubHeader title="显示设置" onBack={onBack} />
+      <SubHeader title="设置" onBack={onBack} />
       <section className="content settings-content">
         <SettingGroup title="弹窗刷新周期" description="弹窗关闭后固定每30秒后台检查">
           <div className="segmented">
@@ -683,9 +753,43 @@ function SettingsView({ quotes, settings, onBack, onChange }: {
           </div>
         </SettingGroup>
 
+        <SettingGroup title="Chrome 同步" description="同步持仓、提醒和设置；不包含行情历史">
+          <div className={`sync-card ${syncStatus.state}`}>
+            <IconCloudCheck size={20} />
+            <div>
+              <strong>{syncStatusLabel(syncStatus)}</strong>
+              <span>{syncStatusDetail(syncStatus)}</span>
+            </div>
+            <button className="mini-action" disabled={syncStatus.state === "syncing"} onClick={() => void syncNow()}>
+              {syncStatus.state === "syncing" ? "同步中" : "立即同步"}
+            </button>
+          </div>
+          <p className="setting-note">需要相同扩展 ID、相同 Chrome 账号，并在浏览器中开启同步。</p>
+        </SettingGroup>
+
+        <SettingGroup title="数据备份" description="导出或恢复持仓、交易、提醒和设置">
+          <div className="backup-actions">
+            <button className="secondary-action" onClick={() => void exportBackup()}><IconDownload size={16} />导出 JSON</button>
+            <button className="secondary-action" onClick={() => fileInputRef.current?.click()}><IconUpload size={16} />导入备份</button>
+            <input ref={fileInputRef} className="file-input" type="file" accept="application/json,.json" onChange={(event) => void selectBackup(event.target.files?.[0])} />
+          </div>
+          {pendingBackup && (
+            <div className="import-preview">
+              <div><strong>确认导入备份</strong><span>{pendingBackup.data.transactions.length} 笔交易 · {pendingBackup.data.alerts.length} 个提醒</span></div>
+              <p>合并会保留当前设置并合并记录；覆盖会用备份替换全部个人数据。</p>
+              <div>
+                <button className="secondary-action" onClick={() => void importBackup("merge")}>合并导入</button>
+                <button className="danger-action" onClick={() => void importBackup("replace")}>覆盖恢复</button>
+              </div>
+            </div>
+          )}
+          {backupMessage && <p className="backup-message">{backupMessage}</p>}
+          {backupError && <p className="form-error">{backupError}</p>}
+        </SettingGroup>
+
         <div className="about-card">
           <div className="brand-mark small-mark">Au</div>
-          <div><strong>金豆行情 v0.3.1</strong><span>数据仅供参考，以实际交易报价为准</span></div>
+          <div><strong>金豆行情 v0.4.0</strong><span>数据仅供参考，以实际交易报价为准</span></div>
         </div>
       </section>
     </>
@@ -789,6 +893,19 @@ function statusText(snapshot: QuoteSnapshot | null, error: string | null): strin
   if (!snapshot) return "正在连接行情…";
   if (snapshot.stale) return `最近有效价格 · ${relativeTime(snapshot.fetchedAt)}`;
   return `行情正常 · ${relativeTime(snapshot.fetchedAt)}`;
+}
+
+function syncStatusLabel(status: SyncStatus): string {
+  if (status.state === "syncing") return "正在同步个人数据";
+  if (status.state === "synced") return "已写入 Chrome Sync";
+  if (status.state === "error") return "当前仅保存在本机";
+  return "等待首次同步";
+}
+
+function syncStatusDetail(status: SyncStatus): string {
+  if (status.state === "error") return status.error ?? "Chrome 同步暂不可用";
+  if (status.lastSyncedAt) return `最近同步 ${relativeTime(status.lastSyncedAt)}`;
+  return "数据会保持本地可用";
 }
 
 function relativeTime(timestamp: number): string {

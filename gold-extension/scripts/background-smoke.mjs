@@ -1,4 +1,5 @@
 const data = {};
+const syncData = {};
 data.holdingTransactions = [{
   id: "holding-1",
   quoteId: "jd_zs_accumulation",
@@ -59,6 +60,18 @@ globalThis.chrome = {
         Object.assign(data, values);
       },
     },
+    sync: {
+      async get(keys) {
+        const list = keys === null ? Object.keys(syncData) : Array.isArray(keys) ? keys : [keys];
+        return Object.fromEntries(list.filter((key) => key in syncData).map((key) => [key, syncData[key]]));
+      },
+      async set(values) {
+        Object.assign(syncData, values);
+      },
+      async remove(keys) {
+        for (const key of Array.isArray(keys) ? keys : [keys]) delete syncData[key];
+      },
+    },
     onChanged: event("changed"),
   },
   action: {
@@ -86,6 +99,7 @@ if (data.badgeText === undefined) throw new Error("Badge was not updated");
 if (data.alarm?.periodInMinutes !== 0.5) throw new Error("Background alarm is not set to 30 seconds");
 if (!data.notification) throw new Error("Cost-based alert did not create a notification");
 if (!data.priceAlerts[0]?.completed || data.priceAlerts[0]?.enabled) throw new Error("One-time alert was not completed");
+if (!syncData.goldBeanSyncManifest) throw new Error("Personal data was not mirrored to Chrome Sync");
 
 console.log(JSON.stringify({
   quoteCount: data.quoteSnapshot.quotes.length,

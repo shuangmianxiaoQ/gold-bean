@@ -304,6 +304,7 @@ button { color: inherit; }
 .setting-group > div:first-child { margin-bottom: 12px; display: flex; flex-direction: column; gap: 3px; }
 .setting-group > div:first-child strong { font-size: 12px; }
 .setting-group > div:first-child span { color: var(--muted); font-size: 9px; line-height: 1.5; }
+.setting-note { margin: 8px 2px 0; color: var(--muted-2); font-size: 8px; line-height: 1.5; }
 .select-input { width: 100%; height: 39px; padding: 0 11px; border: 1px solid var(--border); border-radius: 9px; color: var(--text); background: var(--surface); outline: 0; font-size: 11px; }
 .visibility-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .visibility-list label { height: 42px; padding: 0 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 11px; }
@@ -314,6 +315,26 @@ button { color: inherit; }
 .about-card strong { font-size: 11px; }
 .about-card span { color: var(--muted-2); font-size: 8px; }
 .small-mark { width: 30px; height: 30px; border-radius: 8px; font-size: 12px; }
+
+.sync-card { min-height: 58px; padding: 10px 10px 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 9px; }
+.sync-card > svg { color: var(--gold); }
+.sync-card.error > svg { color: var(--up); }
+.sync-card > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sync-card strong { font-size: 10px; font-weight: 600; }
+.sync-card span { overflow: hidden; color: var(--muted-2); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.sync-card .mini-action:disabled { opacity: .55; cursor: wait; }
+.backup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.secondary-action, .danger-action { min-height: 34px; padding: 0 10px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 9px; cursor: pointer; }
+.secondary-action { border: 1px solid var(--border-strong); color: var(--gold-soft); background: rgba(216,168,78,.065); }
+.danger-action { border: 1px solid rgba(239,100,108,.25); color: #ff8a91; background: rgba(239,100,108,.07); }
+.file-input { display: none; }
+.import-preview { margin-top: 9px; padding: 11px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); }
+.import-preview > div:first-child { display: flex; flex-direction: column; gap: 4px; }
+.import-preview strong { font-size: 10px; }
+.import-preview span, .import-preview p { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.import-preview p { margin: 8px 0; }
+.import-preview > div:last-child { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.backup-message { margin: 8px 2px 0; color: var(--down); font-size: 9px; }
 
 .alert-item { min-height: 70px; padding: 11px 8px 11px 13px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); display: grid; grid-template-columns: 1fr auto 34px; align-items: center; gap: 8px; }
 .alert-item > div { display: flex; flex-direction: column; gap: 5px; }

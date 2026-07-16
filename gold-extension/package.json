@@ -1,13 +1,13 @@
 {
   "name": "gold-bean-extension",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "check": "tsc -b --pretty false",
-    "smoke": "node scripts/holdings-smoke.mjs && node scripts/background-smoke.mjs"
+    "smoke": "node scripts/holdings-smoke.mjs && node scripts/sync-backup-smoke.mjs && node scripts/background-smoke.mjs"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.35.0",

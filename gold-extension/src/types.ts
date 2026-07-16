@@ -101,6 +101,26 @@ export interface HoldingPosition {
   averageCost: number;
 }
 
+export interface PersonalData {
+  settings: ExtensionSettings;
+  alerts: PriceAlert[];
+  transactions: HoldingTransaction[];
+}
+
+export interface SyncStatus {
+  state: "idle" | "syncing" | "synced" | "error";
+  lastSyncedAt?: number;
+  error?: string;
+}
+
+export interface BackupDocument {
+  format: "gold-bean-backup";
+  version: 1;
+  appVersion: string;
+  exportedAt: number;
+  data: PersonalData;
+}
+
 export interface RefreshResult {
   ok: boolean;
   snapshot?: QuoteSnapshot;

@@ -1,4 +1,5 @@
 import {
+  applyRemoteSyncIfNewer,
   getAlerts,
   getHistory,
   getSettings,
@@ -48,8 +49,11 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "local") return;
-  if (changes[STORAGE_KEYS.settings] || changes[STORAGE_KEYS.snapshot]) {
+  if (areaName === "sync") {
+    void applyRemoteSyncIfNewer();
+    return;
+  }
+  if (areaName === "local" && (changes[STORAGE_KEYS.settings] || changes[STORAGE_KEYS.snapshot])) {
     void updateBadge();
   }
 });
