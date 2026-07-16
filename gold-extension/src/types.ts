@@ -41,13 +41,20 @@ export interface GoldApiPayload {
   success: boolean;
   fetchedAt: number;
   stale: boolean;
-  staleSources?: Array<"jdZheshang" | "jdMinsheng" | "market">;
+  staleSources?: Array<"jdZheshang" | "jdMinsheng" | "market" | "exchangeRate">;
   quotes: Quote[];
   sources: {
     jdZheshang: SourceStatus;
     jdMinsheng: SourceStatus;
     market: SourceStatus;
+    exchangeRate?: SourceStatus;
   };
+  exchangeRates?: ExchangeRates;
+}
+
+export interface ExchangeRates {
+  usdCny: number;
+  sourceTime: number;
 }
 
 export interface QuoteSnapshot extends GoldApiPayload {

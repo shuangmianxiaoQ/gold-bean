@@ -4,6 +4,7 @@ import {
   IconArrowUpRight,
   IconBell,
   IconBellPlus,
+  IconCalculator,
   IconChevronRight,
   IconCloudCheck,
   IconCheck,
@@ -56,7 +57,7 @@ import type {
 } from "./types";
 import { DEFAULT_SETTINGS, QUOTE_ORDER } from "./types";
 
-type View = "list" | "detail" | "settings" | "alerts" | "holdings";
+type View = "list" | "detail" | "settings" | "alerts" | "holdings" | "converter";
 type ChartPeriod = "day" | "week";
 
 const excludedBadgeQuoteIds = new Set([
@@ -170,6 +171,7 @@ export function App() {
           onOpenSettings={() => setView("settings")}
           onOpenAlerts={() => setView("alerts")}
           onOpenHoldings={() => setView("holdings")}
+          onOpenConverter={() => setView("converter")}
         />
       )}
       {view === "detail" && selectedQuote && (
@@ -222,6 +224,9 @@ export function App() {
           }}
         />
       )}
+      {view === "converter" && (
+        <ConverterView snapshot={snapshot} quotes={quotes} onBack={() => setView("list")} />
+      )}
     </main>
   );
 }
@@ -238,6 +243,7 @@ interface ListViewProps {
   onOpenSettings: () => void;
   onOpenAlerts: () => void;
   onOpenHoldings: () => void;
+  onOpenConverter: () => void;
 }
 
 function ListView(props: ListViewProps) {
@@ -259,6 +265,9 @@ function ListView(props: ListViewProps) {
           </div>
         </div>
         <div className="topbar-actions">
+          <button className="icon-button" onClick={props.onOpenConverter} aria-label="金价换算">
+            <IconCalculator size={18} />
+          </button>
           <button className="icon-button" onClick={props.onOpenHoldings} aria-label="持仓与收益">
             <IconCoins size={18} />
           </button>
@@ -313,6 +322,168 @@ function ListView(props: ListViewProps) {
       </footer>
     </>
   );
+}
+
+const TROY_OUNCE_GRAMS = 31.1034768;
+const CONVERSION_PRODUCTS = [
+  { id: "au9999", shortName: "Au99.99" },
+  { id: "jd_zs_accumulation", shortName: "浙商积存金" },
+  { id: "jd_ms_accumulation", shortName: "民生积存金" },
+] as const;
+
+function ConverterView({ snapshot, quotes, onBack }: {
+  snapshot: QuoteSnapshot | null;
+  quotes: Quote[];
+  onBack: () => void;
+}) {
+  const london = quotes.find((quote) => quote.id === "london_gold");
+  const availableProducts = CONVERSION_PRODUCTS.flatMap((product) => {
+    const quote = quotes.find((item) => item.id === product.id);
+    return quote ? [{ ...product, quote }] : [];
+  });
+  const [mode, setMode] = useState<"forward" | "reverse">("forward");
+  const [londonTarget, setLondonTarget] = useState(london?.price.toFixed(2) ?? "");
+  const [fxInput, setFxInput] = useState(snapshot?.exchangeRates?.usdCny.toFixed(4) ?? "");
+  const [manualFx, setManualFx] = useState(false);
+  const [reverseProductId, setReverseProductId] = useState<string>(availableProducts[0]?.id ?? "au9999");
+  const reverseProduct = availableProducts.find((product) => product.id === reverseProductId) ?? availableProducts[0];
+  const [domesticTarget, setDomesticTarget] = useState(reverseProduct?.quote.price.toFixed(2) ?? "");
+
+  useEffect(() => {
+    if (!manualFx && snapshot?.exchangeRates?.usdCny) {
+      setFxInput(snapshot.exchangeRates.usdCny.toFixed(4));
+    }
+  }, [manualFx, snapshot?.exchangeRates?.usdCny]);
+
+  useEffect(() => {
+    if (!positiveNumber(londonTarget) && london?.price) setLondonTarget(london.price.toFixed(2));
+  }, [london?.price, londonTarget]);
+
+  const fx = positiveNumber(fxInput);
+  const liveFx = snapshot?.exchangeRates?.usdCny;
+  const currentLondon = london?.price;
+  const currentTheory = liveFx && currentLondon ? currentLondon * liveFx / TROY_OUNCE_GRAMS : undefined;
+  const targetLondon = positiveNumber(londonTarget);
+  const targetTheory = fx && targetLondon ? targetLondon * fx / TROY_OUNCE_GRAMS : undefined;
+  const rows = availableProducts.map((product) => {
+    const adjustment = currentTheory ? product.quote.price / currentTheory : undefined;
+    const estimate = adjustment && targetTheory ? targetTheory * adjustment : undefined;
+    return { ...product, adjustment, estimate };
+  });
+  const reverseAdjustment = reverseProduct && currentTheory ? reverseProduct.quote.price / currentTheory : undefined;
+  const domesticValue = positiveNumber(domesticTarget);
+  const reverseLondon = domesticValue && fx && reverseAdjustment
+    ? domesticValue / reverseAdjustment * TROY_OUNCE_GRAMS / fx
+    : undefined;
+
+  function chooseReverseProduct(id: string) {
+    setReverseProductId(id);
+    const product = availableProducts.find((item) => item.id === id);
+    setDomesticTarget(product?.quote.price.toFixed(2) ?? "");
+  }
+
+  function applyLondonChange(percent: number) {
+    if (!currentLondon) return;
+    setLondonTarget((currentLondon * (1 + percent / 100)).toFixed(2));
+  }
+
+  function restoreExchangeRate() {
+    if (!snapshot?.exchangeRates?.usdCny) return;
+    setManualFx(false);
+    setFxInput(snapshot.exchangeRates.usdCny.toFixed(4));
+  }
+
+  const unavailable = !london || availableProducts.length === 0 || !snapshot?.exchangeRates;
+
+  return (
+    <>
+      <SubHeader title="金价换算" onBack={onBack} />
+      <section className="content converter-content">
+        <div className="converter-intro">
+          <IconCalculator size={20} />
+          <div><strong>国际金价与国内金价估算</strong><span>按当前汇率和实时价差换算</span></div>
+        </div>
+
+        {unavailable ? (
+          <div className="converter-empty">
+            <strong>暂时无法换算</strong>
+            <span>需要伦敦现货、国内产品和美元汇率数据，请稍后刷新行情。</span>
+          </div>
+        ) : (
+          <>
+            <div className="segmented converter-mode">
+              <button className={mode === "forward" ? "active" : ""} onClick={() => setMode("forward")}>伦敦金 → 国内</button>
+              <button className={mode === "reverse" ? "active" : ""} onClick={() => setMode("reverse")}>国内 → 伦敦金</button>
+            </div>
+
+            <div className="exchange-rate-card">
+              <label>
+                <span>美元兑人民币</span>
+                <div><b>¥</b><input aria-label="美元兑人民币汇率" inputMode="decimal" value={fxInput} onChange={(event) => { setManualFx(true); setFxInput(event.target.value); }} /></div>
+              </label>
+              <div className="exchange-meta">
+                <span>{manualFx ? "手动汇率" : snapshot?.staleSources?.includes("exchangeRate") ? "沿用最近汇率" : `更新于 ${formatTime(snapshot?.exchangeRates?.sourceTime)}`}</span>
+                {manualFx && <button onClick={restoreExchangeRate}>恢复实时</button>}
+              </div>
+            </div>
+
+            {mode === "forward" ? (
+              <>
+                <div className="converter-input-card">
+                  <label><span>伦敦金目标价</span><small>美元/盎司</small></label>
+                  <div className="converter-main-input"><b>$</b><input aria-label="伦敦金目标价" inputMode="decimal" value={londonTarget} onChange={(event) => setLondonTarget(event.target.value)} /></div>
+                  <div className="quick-adjustments">
+                    {[-2, -1, 0, 1, 2].map((percent) => <button key={percent} onClick={() => applyLondonChange(percent)}>{percent === 0 ? "当前" : `${percent > 0 ? "+" : ""}${percent}%`}</button>)}
+                  </div>
+                </div>
+
+                <section className="conversion-results">
+                  <div className="conversion-heading"><strong>国内估算价</strong><span>当前伦敦金 ${currentLondon?.toFixed(2)}</span></div>
+                  <ConversionRow name="人民币理论金价" value={targetTheory} current={currentTheory} note="汇率直接折算" />
+                  {rows.map((row) => <ConversionRow key={row.id} name={row.shortName} value={row.estimate} current={row.quote.price} note="按当前价差修正" />)}
+                </section>
+              </>
+            ) : (
+              <>
+                <div className="converter-input-card">
+                  <label><span>国内目标产品</span><small>反推伦敦金</small></label>
+                  <select className="select-input" value={reverseProductId} onChange={(event) => chooseReverseProduct(event.target.value)}>
+                    {availableProducts.map((product) => <option key={product.id} value={product.id}>{product.shortName}</option>)}
+                  </select>
+                  <div className="converter-main-input domestic"><b>¥</b><input aria-label="国内目标价格" inputMode="decimal" value={domesticTarget} onChange={(event) => setDomesticTarget(event.target.value)} /><small>/克</small></div>
+                </div>
+
+                <div className="reverse-result-card">
+                  <span>对应伦敦金约</span>
+                  <strong>{reverseLondon ? `$${reverseLondon.toFixed(2)}` : "--"}<small>/盎司</small></strong>
+                  {reverseLondon && currentLondon && <b className={reverseLondon >= currentLondon ? "up" : "down"}>{signed((reverseLondon / currentLondon - 1) * 100)}%</b>}
+                  <div><span>当前伦敦金</span><b>${currentLondon?.toFixed(2)}</b></div>
+                  <div><span>当前{reverseProduct?.shortName}</span><b>¥{reverseProduct?.quote.price.toFixed(2)}</b></div>
+                </div>
+              </>
+            )}
+
+            <p className="converter-note">估算按当前产品与国际金价的价差推算，盘中汇率、交易时段和产品定价规则变化都会造成偏差，仅作为设置条件单前的参考。</p>
+          </>
+        )}
+      </section>
+    </>
+  );
+}
+
+function ConversionRow({ name, value, current, note }: { name: string; value?: number; current?: number; note: string }) {
+  const percent = value && current ? (value / current - 1) * 100 : undefined;
+  return (
+    <div className="conversion-row">
+      <div><strong>{name}</strong><span>{note}</span></div>
+      <div><b>{value ? `¥${value.toFixed(2)}` : "--"}</b>{percent !== undefined && <span className={percent >= 0 ? "up" : "down"}>{signed(percent)}%</span>}</div>
+    </div>
+  );
+}
+
+function positiveNumber(value: string): number | undefined {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function FocusCard({ quote, snapshot, onClick }: { quote: Quote; snapshot: QuoteSnapshot | null; onClick: () => void }) {

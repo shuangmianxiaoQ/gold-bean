@@ -1,4 +1,4 @@
-export type SourceKey = "jdZheshang" | "jdMinsheng" | "market";
+export type SourceKey = "jdZheshang" | "jdMinsheng" | "market" | "exchangeRate";
 
 interface FallbackPayload<TQuote extends { id: string }> {
   success: boolean;
@@ -6,6 +6,10 @@ interface FallbackPayload<TQuote extends { id: string }> {
   staleSources?: SourceKey[];
   quotes: TQuote[];
   sources: Record<SourceKey, { ok: boolean }>;
+  exchangeRates?: {
+    usdCny: number;
+    sourceTime: number;
+  };
 }
 
 const sourceQuoteIds: Record<SourceKey, readonly string[]> = {
@@ -20,6 +24,7 @@ const sourceQuoteIds: Record<SourceKey, readonly string[]> = {
     "bank_investment_bar",
     "gold_recycle",
   ],
+  exchangeRate: [],
 };
 
 export function isCompletePayload<TQuote extends { id: string }>(payload: FallbackPayload<TQuote>): boolean {
@@ -33,9 +38,17 @@ export function mergeWithFallback<
   const quotes = [...current.quotes];
   const quoteIds = new Set(quotes.map((quote) => quote.id));
   const staleSources: SourceKey[] = [];
+  let exchangeRates = current.exchangeRates;
 
   for (const source of Object.keys(sourceQuoteIds) as SourceKey[]) {
     if (sourceIsComplete(current, source)) continue;
+    if (source === "exchangeRate") {
+      if (fallback.exchangeRates) {
+        exchangeRates = fallback.exchangeRates;
+        staleSources.push(source);
+      }
+      continue;
+    }
     let recovered = false;
     for (const quote of fallback.quotes) {
       if (!sourceQuoteIds[source].includes(quote.id) || quoteIds.has(quote.id)) continue;
@@ -52,11 +65,15 @@ export function mergeWithFallback<
     stale: staleSources.length > 0,
     staleSources,
     quotes,
+    exchangeRates,
   };
 }
 
 function sourceIsComplete<TQuote extends { id: string }>(payload: FallbackPayload<TQuote>, source: SourceKey): boolean {
   if (!payload.sources[source].ok) return false;
+  if (source === "exchangeRate") {
+    return typeof payload.exchangeRates?.usdCny === "number" && payload.exchangeRates.usdCny > 0;
+  }
   const quoteIds = new Set(payload.quotes.map((quote) => quote.id));
   return sourceQuoteIds[source].every((id) => quoteIds.has(id));
 }

@@ -3,9 +3,11 @@ import { isCompletePayload, mergeWithFallback, type SourceKey } from "./fallback
 const JD_BASE_URL =
   "https://api.jdjygold.com/gw2/generic/jrm/h5/m/stdLatestPrice?productSku=";
 const MARKET_URL = "https://60s.pixidou.com/v2/gold-price";
+const EXCHANGE_RATE_URL = "https://60s.pixidou.com/v2/exchange-rate";
 
 const FRESH_TTL_SECONDS = 5;
 const FALLBACK_TTL_SECONDS = 300;
+const EXCHANGE_RATE_TTL_SECONDS = 15 * 60;
 const UPSTREAM_TIMEOUT_MS = 15_000;
 
 type QuoteCategory = "accumulation" | "domestic" | "international" | "retail";
@@ -55,7 +57,14 @@ interface GoldApiPayload {
     jdZheshang: SourceStatus;
     jdMinsheng: SourceStatus;
     market: SourceStatus;
+    exchangeRate: SourceStatus;
   };
+  exchangeRates?: ExchangeRates;
+}
+
+interface ExchangeRates {
+  usdCny: number;
+  sourceTime: number;
 }
 
 interface JdResponse {
@@ -113,6 +122,15 @@ interface MarketResponse {
     stores?: MarketStore[];
     banks?: MarketBank[];
     recycle?: MarketRecycle[];
+  };
+}
+
+interface ExchangeRateResponse {
+  code?: number;
+  data?: {
+    base_code?: string;
+    updated_at?: number;
+    rates?: Array<{ currency?: string; rate?: number }>;
   };
 }
 
@@ -221,10 +239,11 @@ export default {
 
 async function fetchQuotes(): Promise<GoldApiPayload> {
   const fetchedAt = Date.now();
-  const [jdZheshangResult, jdMinshengResult, marketResult] = await Promise.allSettled([
+  const [jdZheshangResult, jdMinshengResult, marketResult, exchangeRateResult] = await Promise.allSettled([
     fetchJson<JdResponse>(`${JD_BASE_URL}${jdDefinitions[0].sku}`),
     fetchJson<JdResponse>(`${JD_BASE_URL}${jdDefinitions[1].sku}`),
     fetchJsonWithRetry<MarketResponse>(MARKET_URL),
+    fetchExchangeRates(),
   ]);
 
   const quotes: Quote[] = [];
@@ -232,7 +251,12 @@ async function fetchQuotes(): Promise<GoldApiPayload> {
     jdZheshang: sourceFailure(jdZheshangResult),
     jdMinsheng: sourceFailure(jdMinshengResult),
     market: sourceFailure(marketResult),
+    exchangeRate: sourceFailure(exchangeRateResult),
   };
+  const exchangeRates = exchangeRateResult.status === "fulfilled" ? exchangeRateResult.value : undefined;
+  if (exchangeRates) {
+    sources.exchangeRate = { ok: true, sourceTime: exchangeRates.sourceTime };
+  }
 
   sources.jdZheshang = appendJdQuote(jdZheshangResult, jdDefinitions[0], quotes);
   sources.jdMinsheng = appendJdQuote(jdMinshengResult, jdDefinitions[1], quotes);
@@ -335,7 +359,33 @@ async function fetchQuotes(): Promise<GoldApiPayload> {
     stale: false,
     quotes,
     sources,
+    exchangeRates,
   };
+}
+
+async function fetchExchangeRates(): Promise<ExchangeRates> {
+  const cache = caches.default;
+  const cacheRequest = new Request("https://gold-api.pixidou.com/__exchange_rate_cache");
+  const cached = await cache.match(cacheRequest);
+  if (cached) return (await cached.json()) as ExchangeRates;
+
+  const response = await fetchJsonWithRetry<ExchangeRateResponse>(EXCHANGE_RATE_URL);
+  const usdRate = response.data?.rates?.find((item) => item.currency === "USD")?.rate;
+  if (response.code !== 200 || response.data?.base_code !== "CNY" || !usdRate || usdRate <= 0) {
+    throw new Error("Invalid exchange rate response");
+  }
+
+  const value: ExchangeRates = {
+    usdCny: 1 / usdRate,
+    sourceTime: response.data.updated_at ?? Date.now(),
+  };
+  await cache.put(cacheRequest, new Response(JSON.stringify(value), {
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": `public, max-age=${EXCHANGE_RATE_TTL_SECONDS}`,
+    },
+  }));
+  return value;
 }
 
 function appendJdQuote(

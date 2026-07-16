@@ -4,6 +4,7 @@ const sourcesOk = {
   jdZheshang: { ok: true },
   jdMinsheng: { ok: true },
   market: { ok: true },
+  exchangeRate: { ok: true },
 };
 const quoteIds = [
   "jd_zs_accumulation",
@@ -21,6 +22,7 @@ const complete = {
   fetchedAt: 1,
   stale: false,
   sources: sourcesOk,
+  exchangeRates: { usdCny: 7.2, sourceTime: 1 },
   quotes: quoteIds.map((id, index) => ({ id, name: id, category: "domestic", price: 800 + index, unit: "元/克" })),
 };
 
@@ -46,5 +48,14 @@ const incompleteMarket = {
 const recoveredMissingQuote = mergeWithFallback(incompleteMarket, complete);
 if (!recoveredMissingQuote.quotes.some((quote) => quote.id === "gold_recycle")) throw new Error("Missing market quote was not recovered");
 if (recoveredMissingQuote.staleSources?.join() !== "market") throw new Error("Incomplete market response was not marked stale");
+
+const missingExchangeRate = {
+  ...complete,
+  sources: { ...sourcesOk, exchangeRate: { ok: false, error: "timeout" } },
+  exchangeRates: undefined,
+};
+const recoveredExchangeRate = mergeWithFallback(missingExchangeRate, complete);
+if (recoveredExchangeRate.exchangeRates?.usdCny !== 7.2) throw new Error("Exchange rate fallback was not recovered");
+if (!recoveredExchangeRate.staleSources?.includes("exchangeRate")) throw new Error("Exchange rate fallback was not marked stale");
 
 console.log("Worker fallback smoke test passed");
