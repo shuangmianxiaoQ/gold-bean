@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "金豆行情",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "实时金价监控、持仓收益、趋势查看与交易提醒。",
   "action": {
     "default_popup": "popup.html",

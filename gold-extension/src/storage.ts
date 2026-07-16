@@ -54,10 +54,7 @@ export async function getHistory(): Promise<QuoteHistory> {
 
 export async function getSettings(): Promise<ExtensionSettings> {
   const result = await chrome.storage.local.get(STORAGE_KEYS.settings);
-  return {
-    ...DEFAULT_SETTINGS,
-    ...((result[STORAGE_KEYS.settings] as Partial<ExtensionSettings> | undefined) ?? {}),
-  };
+  return normalizeSettings(result[STORAGE_KEYS.settings] as Partial<ExtensionSettings> | undefined);
 }
 
 export async function saveSettings(settings: ExtensionSettings): Promise<void> {
@@ -89,7 +86,7 @@ export async function getPersonalData(): Promise<PersonalData> {
     STORAGE_KEYS.transactions,
   ]);
   return {
-    settings: { ...DEFAULT_SETTINGS, ...((result[STORAGE_KEYS.settings] as Partial<ExtensionSettings> | undefined) ?? {}) },
+    settings: normalizeSettings(result[STORAGE_KEYS.settings] as Partial<ExtensionSettings> | undefined),
     alerts: (result[STORAGE_KEYS.alerts] as PriceAlert[] | undefined) ?? [],
     transactions: (result[STORAGE_KEYS.transactions] as HoldingTransaction[] | undefined) ?? [],
   };
@@ -258,10 +255,24 @@ async function readSyncData(manifest: SyncManifest): Promise<PersonalData> {
   const transactionKeys = Array.from({ length: manifest.transactionChunks }, (_, index) => `${SYNC_KEYS.transactionsPrefix}${index}`);
   const result = await chrome.storage.sync.get([...alertKeys, ...transactionKeys]);
   return {
-    settings: { ...DEFAULT_SETTINGS, ...manifest.settings },
+    settings: normalizeSettings(manifest.settings),
     alerts: alertKeys.flatMap((key) => (result[key] as PriceAlert[] | undefined) ?? []),
     transactions: transactionKeys.flatMap((key) => (result[key] as HoldingTransaction[] | undefined) ?? []),
   };
+}
+
+const excludedBadgeQuoteIds = new Set([
+  "retail_store_gold",
+  "bank_investment_bar",
+  "shuibei_gold",
+  "gold_recycle",
+]);
+
+function normalizeSettings(value?: Partial<ExtensionSettings>): ExtensionSettings {
+  const settings = { ...DEFAULT_SETTINGS, ...(value ?? {}) };
+  return excludedBadgeQuoteIds.has(settings.badgeQuoteId)
+    ? { ...settings, badgeQuoteId: DEFAULT_SETTINGS.badgeQuoteId }
+    : settings;
 }
 
 async function writeLocalPersonalData(data: PersonalData, updatedAt: number): Promise<void> {

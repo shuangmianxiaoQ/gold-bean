@@ -6,6 +6,7 @@ import {
   IconBellPlus,
   IconChevronRight,
   IconCloudCheck,
+  IconCheck,
   IconClock,
   IconCoins,
   IconDownload,
@@ -56,7 +57,14 @@ import type {
 import { DEFAULT_SETTINGS, QUOTE_ORDER } from "./types";
 
 type View = "list" | "detail" | "settings" | "alerts" | "holdings";
-type ChartPeriod = "hour" | "day" | "week";
+type ChartPeriod = "day" | "week";
+
+const excludedBadgeQuoteIds = new Set([
+  "retail_store_gold",
+  "bank_investment_bar",
+  "shuibei_gold",
+  "gold_recycle",
+]);
 
 const categoryLabels: Record<QuoteCategory, string> = {
   accumulation: "积存金",
@@ -357,7 +365,7 @@ interface DetailViewProps {
 
 function DetailView({ quote, snapshot, points, alerts, position, onBack, onSaveAlert }: DetailViewProps) {
   const isDaily = quote.category === "retail";
-  const [period, setPeriod] = useState<ChartPeriod>(isDaily ? "week" : "hour");
+  const [period, setPeriod] = useState<ChartPeriod>(isDaily ? "week" : "day");
   const [showAlertForm, setShowAlertForm] = useState(false);
   const [alertIntent, setAlertIntent] = useState<AlertIntent>("buy");
   const [alertDirection, setAlertDirection] = useState<AlertDirection>("below");
@@ -410,16 +418,16 @@ function DetailView({ quote, snapshot, points, alerts, position, onBack, onSaveA
           <div className="chart-header">
             <div>
               <span className="eyebrow">价格趋势</span>
-              <strong>{isDaily ? "最近每日报价" : period === "hour" ? "近1小时" : "今日"}</strong>
+              <strong>{isDaily ? "最近每日报价" : period === "day" ? "今日走势" : "近7日"}</strong>
             </div>
             {!isDaily && (
               <div className="segmented compact">
-                <button className={period === "hour" ? "active" : ""} onClick={() => setPeriod("hour")}>1小时</button>
                 <button className={period === "day" ? "active" : ""} onClick={() => setPeriod("day")}>今日</button>
+                <button className={period === "week" ? "active" : ""} onClick={() => setPeriod("week")}>7日</button>
               </div>
             )}
           </div>
-          <TrendChart points={points} period={period} currentPrice={quote.price} />
+          <TrendChart points={points} period={period} currentPrice={quote.price} dailySampling={isDaily} />
           {isDaily && <p className="chart-note">实物参考价每天保存一个价格点，历史数据会从安装后逐步积累。</p>}
         </div>
 
@@ -710,12 +718,12 @@ function SettingsView({ quotes, settings, onBack, onChange, onRestored }: {
       <section className="content settings-content">
         <SettingGroup title="弹窗刷新周期" description="弹窗关闭后固定每30秒后台检查">
           <div className="segmented">
-            {[10, 30].map((seconds) => (
+            {[10, 30, 60].map((seconds) => (
               <button
                 key={seconds}
                 className={settings.refreshInterval === seconds ? "active" : ""}
-                onClick={() => void onChange({ ...settings, refreshInterval: seconds as 10 | 30 })}
-              >{seconds}秒</button>
+                onClick={() => void onChange({ ...settings, refreshInterval: seconds as 10 | 30 | 60 })}
+              >{seconds === 60 ? "1分钟" : `${seconds}秒`}</button>
             ))}
           </div>
         </SettingGroup>
@@ -726,28 +734,39 @@ function SettingsView({ quotes, settings, onBack, onChange, onRestored }: {
             value={settings.badgeQuoteId}
             onChange={(event) => void onChange({ ...settings, badgeQuoteId: event.target.value })}
           >
-            {quotes.map((quote) => <option key={quote.id} value={quote.id}>{quote.name}</option>)}
+            {quotes.filter((quote) => !excludedBadgeQuoteIds.has(quote.id)).map((quote) => (
+              <option key={quote.id} value={quote.id}>{quote.name}</option>
+            ))}
           </select>
         </SettingGroup>
 
         <SettingGroup title="行情显示" description="隐藏后仍会在后台获取行情和执行提醒">
-          <div className="visibility-list">
+          <div className="visibility-toolbar">
+            <span>已显示 {quotes.filter((quote) => !settings.hiddenQuoteIds.includes(quote.id)).length}/{quotes.length}</span>
+            {settings.hiddenQuoteIds.length > 0 && (
+              <button onClick={() => void onChange({ ...settings, hiddenQuoteIds: [] })}>全部显示</button>
+            )}
+          </div>
+          <div className="visibility-grid">
             {quotes.map((quote) => {
               const visible = !settings.hiddenQuoteIds.includes(quote.id);
               return (
-                <label key={quote.id}>
+                <button
+                  type="button"
+                  className={visible ? "active" : ""}
+                  aria-pressed={visible}
+                  title={quote.name}
+                  key={quote.id}
+                  onClick={() => {
+                    const hiddenQuoteIds = visible
+                      ? [...settings.hiddenQuoteIds, quote.id]
+                      : settings.hiddenQuoteIds.filter((id) => id !== quote.id);
+                    void onChange({ ...settings, hiddenQuoteIds });
+                  }}
+                >
+                  <IconCheck size={13} />
                   <span>{quote.name}</span>
-                  <input
-                    type="checkbox"
-                    checked={visible}
-                    onChange={() => {
-                      const hiddenQuoteIds = visible
-                        ? [...settings.hiddenQuoteIds, quote.id]
-                        : settings.hiddenQuoteIds.filter((id) => id !== quote.id);
-                      void onChange({ ...settings, hiddenQuoteIds });
-                    }}
-                  />
-                </label>
+                </button>
               );
             })}
           </div>

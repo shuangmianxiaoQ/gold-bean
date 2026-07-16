@@ -25,7 +25,7 @@ const API_URL = "https://gold-api.pixidou.com/v1/quotes";
 const ALARM_NAME = "refresh-gold-quotes";
 const BACKGROUND_INTERVAL_MINUTES = 0.5;
 const REQUEST_TIMEOUT_MS = 20_000;
-const DAY_MS = 24 * 60 * 60 * 1_000;
+const HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const MINUTE_MS = 60 * 1_000;
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -114,7 +114,7 @@ async function refreshQuotes(force = false): Promise<RefreshResult> {
 
 async function updateHistory(quotes: Quote[], fetchedAt: number): Promise<QuoteHistory> {
   const history = await getHistory();
-  const cutoff = fetchedAt - DAY_MS;
+  const cutoff = fetchedAt - HISTORY_RETENTION_MS;
 
   for (const quote of quotes) {
     const points = (history[quote.id] ?? []).filter((point) => point.time >= cutoff);

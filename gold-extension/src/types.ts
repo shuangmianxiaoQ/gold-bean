@@ -1,6 +1,6 @@
 export type QuoteCategory = "accumulation" | "domestic" | "international" | "retail";
 export type PriceDirection = "up" | "down" | "flat";
-export type RefreshInterval = 10 | 30;
+export type RefreshInterval = 10 | 30 | 60;
 export type AlertDirection = "above" | "below";
 export type AlertKind = "price" | "costPercent";
 export type AlertIntent = "buy" | "takeProfit" | "costChange";
@@ -41,6 +41,7 @@ export interface GoldApiPayload {
   success: boolean;
   fetchedAt: number;
   stale: boolean;
+  staleSources?: Array<"jdZheshang" | "jdMinsheng" | "market">;
   quotes: Quote[];
   sources: {
     jdZheshang: SourceStatus;

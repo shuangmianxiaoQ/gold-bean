@@ -11,7 +11,7 @@ export function createBackupDocument(data: PersonalData): BackupDocument {
   return {
     format: "gold-bean-backup",
     version: 1,
-    appVersion: "0.4.0",
+    appVersion: "0.4.1",
     exportedAt: Date.now(),
     data,
   };
@@ -47,7 +47,7 @@ export function parseBackupDocument(text: string): BackupDocument {
 
 function isSettings(value: unknown): value is ExtensionSettings {
   return isRecord(value)
-    && (value.refreshInterval === 10 || value.refreshInterval === 30)
+    && (value.refreshInterval === 10 || value.refreshInterval === 30 || value.refreshInterval === 60)
     && typeof value.badgeQuoteId === "string"
     && Array.isArray(value.hiddenQuoteIds)
     && value.hiddenQuoteIds.every((item) => typeof item === "string");

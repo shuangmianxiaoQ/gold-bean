@@ -1,3 +1,5 @@
+import { isCompletePayload, mergeWithFallback, type SourceKey } from "./fallback.ts";
+
 const JD_BASE_URL =
   "https://api.jdjygold.com/gw2/generic/jrm/h5/m/stdLatestPrice?productSku=";
 const MARKET_URL = "https://60s.pixidou.com/v2/gold-price";
@@ -47,6 +49,7 @@ interface GoldApiPayload {
   success: boolean;
   fetchedAt: number;
   stale: boolean;
+  staleSources?: SourceKey[];
   quotes: Quote[];
   sources: {
     jdZheshang: SourceStatus;
@@ -183,24 +186,32 @@ export default {
       if (cached) return withClientHeaders(cached, "HIT");
     }
 
-    const payload = await fetchQuotes();
+    const fetchedPayload = await fetchQuotes();
+    let fallbackPayload: GoldApiPayload | undefined;
+    let payload = fetchedPayload;
+
+    if (!isCompletePayload(fetchedPayload)) {
+      const fallbackResponse = await cache.match(fallbackKey);
+      if (fallbackResponse) {
+        fallbackPayload = (await fallbackResponse.json()) as GoldApiPayload;
+        payload = mergeWithFallback(fetchedPayload, fallbackPayload);
+      }
+    }
+
     if (payload.quotes.length > 0) {
       const freshResponse = cacheResponse(payload, FRESH_TTL_SECONDS);
-      const fallbackResponse = cacheResponse(payload, FALLBACK_TTL_SECONDS);
+      const cacheWrites = [cache.put(freshKey, freshResponse)];
+      if (isCompletePayload(fetchedPayload)) {
+        cacheWrites.push(cache.put(fallbackKey, cacheResponse(fetchedPayload, FALLBACK_TTL_SECONDS)));
+      }
       ctx.waitUntil(
-        Promise.all([
-          cache.put(freshKey, freshResponse),
-          cache.put(fallbackKey, fallbackResponse),
-        ]).then(() => undefined),
+        Promise.all(cacheWrites).then(() => undefined),
       );
       return jsonResponse(payload, 200, { "X-Gold-Cache": "MISS" });
     }
 
-    const fallback = await cache.match(fallbackKey);
-    if (fallback) {
-      const stalePayload = (await fallback.json()) as GoldApiPayload;
-      stalePayload.stale = true;
-      stalePayload.sources = payload.sources;
+    if (fallbackPayload) {
+      const stalePayload = mergeWithFallback(fetchedPayload, fallbackPayload);
       return jsonResponse(stalePayload, 200, { "X-Gold-Cache": "STALE" });
     }
 
@@ -213,7 +224,7 @@ async function fetchQuotes(): Promise<GoldApiPayload> {
   const [jdZheshangResult, jdMinshengResult, marketResult] = await Promise.allSettled([
     fetchJson<JdResponse>(`${JD_BASE_URL}${jdDefinitions[0].sku}`),
     fetchJson<JdResponse>(`${JD_BASE_URL}${jdDefinitions[1].sku}`),
-    fetchJson<MarketResponse>(MARKET_URL),
+    fetchJsonWithRetry<MarketResponse>(MARKET_URL),
   ]);
 
   const quotes: Quote[] = [];
@@ -393,6 +404,15 @@ async function fetchJson<T>(url: string): Promise<T> {
   });
   if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
   return (await response.json()) as T;
+}
+
+async function fetchJsonWithRetry<T>(url: string): Promise<T> {
+  try {
+    return await fetchJson<T>(url);
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return fetchJson<T>(url);
+  }
 }
 
 function sourceFailure<T>(result: PromiseSettledResult<T>): SourceStatus {
