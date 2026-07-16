@@ -33,3 +33,9 @@ await Promise.all(backgroundTasks);
 console.log(JSON.stringify(payload, null, 2));
 
 if (!response.ok || !payload.success) process.exitCode = 1;
+if (payload.quotes?.length !== 9) throw new Error(`Expected 9 quotes, got ${payload.quotes?.length}`);
+if (payload.quotes.some((quote) => quote.id === "autd")) throw new Error("Au(T+D) should not be returned");
+const retail = payload.quotes.find((quote) => quote.id === "retail_store_gold");
+if (retail?.aggregation?.sampleCount !== 8 || retail.aggregation.samples?.length !== 8) throw new Error("Expected 8 retail store samples");
+const bank = payload.quotes.find((quote) => quote.id === "bank_investment_bar");
+if (bank?.aggregation?.sampleCount !== 5 || bank.aggregation.samples?.length !== 5) throw new Error("Expected 5 bank samples");

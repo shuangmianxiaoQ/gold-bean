@@ -81,7 +81,7 @@ for (let attempt = 0; attempt < 30 && !data.quoteSnapshot; attempt += 1) {
 }
 
 if (!data.quoteSnapshot?.success) throw new Error("Background refresh did not store a valid snapshot");
-if (data.quoteSnapshot.quotes.length < 6) throw new Error("Expected six aggregated quotes");
+if (data.quoteSnapshot.quotes.length < 9) throw new Error("Expected nine aggregated quotes");
 if (data.badgeText === undefined) throw new Error("Badge was not updated");
 if (data.alarm?.periodInMinutes !== 0.5) throw new Error("Background alarm is not set to 30 seconds");
 if (!data.notification) throw new Error("Cost-based alert did not create a notification");

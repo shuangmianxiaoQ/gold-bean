@@ -115,7 +115,7 @@ async function updateHistory(quotes: Quote[], fetchedAt: number): Promise<QuoteH
   for (const quote of quotes) {
     const points = (history[quote.id] ?? []).filter((point) => point.time >= cutoff);
     const last = points.at(-1);
-    const isDailyQuote = quote.id === "shuibei_gold";
+    const isDailyQuote = quote.category === "retail";
     const shouldAppend = isDailyQuote
       ? !last || new Date(last.time).toDateString() !== new Date(fetchedAt).toDateString()
       : !last || fetchedAt - last.time >= MINUTE_MS;

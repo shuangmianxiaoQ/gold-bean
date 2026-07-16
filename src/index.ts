@@ -1,5 +1,5 @@
-const JD_URL =
-  "https://api.jdjygold.com/gw2/generic/jrm/h5/m/stdLatestPrice?productSku=1961543816";
+const JD_BASE_URL =
+  "https://api.jdjygold.com/gw2/generic/jrm/h5/m/stdLatestPrice?productSku=";
 const MARKET_URL = "https://60s.pixidou.com/v2/gold-price";
 
 const FRESH_TTL_SECONDS = 5;
@@ -21,6 +21,20 @@ interface Quote {
   high?: number;
   low?: number;
   sourceTime?: number;
+  aggregation?: QuoteAggregation;
+}
+
+interface QuoteSample {
+  name: string;
+  price: number;
+}
+
+interface QuoteAggregation {
+  method: "median";
+  sampleCount: number;
+  min: number;
+  max: number;
+  samples: QuoteSample[];
 }
 
 interface SourceStatus {
@@ -35,7 +49,8 @@ interface GoldApiPayload {
   stale: boolean;
   quotes: Quote[];
   sources: {
-    jd: SourceStatus;
+    jdZheshang: SourceStatus;
+    jdMinsheng: SourceStatus;
     market: SourceStatus;
   };
 }
@@ -72,17 +87,58 @@ interface MarketStore {
   updated_at?: number;
 }
 
+interface MarketBank {
+  bank?: string;
+  product?: string;
+  price?: string;
+  unit?: string;
+  updated_at?: number;
+}
+
+interface MarketRecycle {
+  type?: string;
+  price?: string;
+  unit?: string;
+  purity?: string;
+  updated_at?: number;
+}
+
 interface MarketResponse {
   code?: number;
   data?: {
     metals?: MarketMetal[];
     stores?: MarketStore[];
+    banks?: MarketBank[];
+    recycle?: MarketRecycle[];
   };
 }
 
+const jdDefinitions = [
+  { sku: "1961543816", id: "jd_zs_accumulation", name: "京东金融浙商积存金" },
+  { sku: "21001001000001", id: "jd_ms_accumulation", name: "京东金融民生积存金" },
+] as const;
+
+const representativeStores = [
+  "周大福",
+  "老凤祥",
+  "老庙黄金",
+  "周生生",
+  "六福珠宝",
+  "菜百首饰",
+  "中国黄金",
+  "周大生",
+] as const;
+
+const representativeBanks = [
+  "工商银行",
+  "中国银行",
+  "建设银行",
+  "农业银行",
+  "民生银行",
+] as const;
+
 const metalDefinitions = [
   { sourceName: "黄金_9999", id: "au9999", name: "Au99.99", category: "domestic" },
-  { sourceName: "黄金_T+D", id: "autd", name: "Au(T+D)", category: "domestic" },
   {
     sourceName: "伦敦金(现货黄金)",
     id: "london_gold",
@@ -154,38 +210,21 @@ export default {
 
 async function fetchQuotes(): Promise<GoldApiPayload> {
   const fetchedAt = Date.now();
-  const [jdResult, marketResult] = await Promise.allSettled([
-    fetchJson<JdResponse>(JD_URL),
+  const [jdZheshangResult, jdMinshengResult, marketResult] = await Promise.allSettled([
+    fetchJson<JdResponse>(`${JD_BASE_URL}${jdDefinitions[0].sku}`),
+    fetchJson<JdResponse>(`${JD_BASE_URL}${jdDefinitions[1].sku}`),
     fetchJson<MarketResponse>(MARKET_URL),
   ]);
 
   const quotes: Quote[] = [];
   const sources = {
-    jd: sourceFailure(jdResult),
+    jdZheshang: sourceFailure(jdZheshangResult),
+    jdMinsheng: sourceFailure(jdMinshengResult),
     market: sourceFailure(marketResult),
   };
 
-  if (jdResult.status === "fulfilled") {
-    const data = jdResult.value.resultData?.datas;
-    const price = toNumber(data?.price);
-    if (jdResult.value.success && data && price !== undefined) {
-      const sourceTime = toNumber(data.time);
-      quotes.push({
-        id: "jd_zs_accumulation",
-        name: "京东金融浙商积存金",
-        category: "accumulation",
-        price,
-        unit: "元/克",
-        yesterdayPrice: toNumber(data.yesterdayPrice),
-        changeAmount: toNumber(data.upAndDownAmt),
-        changePercent: toPercent(data.upAndDownRate),
-        sourceTime,
-      });
-      sources.jd = { ok: true, sourceTime };
-    } else {
-      sources.jd = { ok: false, error: "Invalid JD response" };
-    }
-  }
+  sources.jdZheshang = appendJdQuote(jdZheshangResult, jdDefinitions[0], quotes);
+  sources.jdMinsheng = appendJdQuote(jdMinshengResult, jdDefinitions[1], quotes);
 
   if (marketResult.status === "fulfilled") {
     const market = marketResult.value;
@@ -220,8 +259,57 @@ async function fetchQuotes(): Promise<GoldApiPayload> {
         });
       }
 
+      const storeSamples = representativeStores.flatMap((brand) => {
+        const item = market.data?.stores?.find((store) => store.brand === brand && store.product === "黄金");
+        const price = toNumber(item?.price);
+        return price === undefined ? [] : [{ name: brand, price, sourceTime: item?.updated_at }];
+      });
+      const storeAggregation = medianAggregation(storeSamples);
+      if (storeAggregation) {
+        quotes.push({
+          id: "retail_store_gold",
+          name: "门店黄金",
+          category: "retail",
+          price: median(storeSamples.map((sample) => sample.price)),
+          unit: "元/克",
+          sourceTime: latestSafeTime(storeSamples.map((sample) => sample.sourceTime), fetchedAt),
+          aggregation: storeAggregation,
+        });
+      }
+
+      const bankSamples = representativeBanks.flatMap((bank) => {
+        const item = market.data?.banks?.find((entry) => entry.bank === bank && entry.product?.includes("金条"));
+        const price = toNumber(item?.price);
+        return price === undefined ? [] : [{ name: bank, price, sourceTime: item?.updated_at }];
+      });
+      const bankAggregation = medianAggregation(bankSamples);
+      if (bankAggregation) {
+        quotes.push({
+          id: "bank_investment_bar",
+          name: "银行投资金条",
+          category: "retail",
+          price: median(bankSamples.map((sample) => sample.price)),
+          unit: "元/克",
+          sourceTime: latestSafeTime(bankSamples.map((sample) => sample.sourceTime), fetchedAt),
+          aggregation: bankAggregation,
+        });
+      }
+
+      const recycle = market.data.recycle?.find((item) => item.type === "黄金回收");
+      const recyclePrice = toNumber(recycle?.price);
+      if (recycle && recyclePrice !== undefined) {
+        quotes.push({
+          id: "gold_recycle",
+          name: "黄金回收",
+          category: "retail",
+          price: recyclePrice,
+          unit: recycle.unit ?? "元/克",
+          sourceTime: safeSourceTime(recycle.updated_at, fetchedAt),
+        });
+      }
+
       const marketTimes = quotes
-        .filter((quote) => quote.id !== "jd_zs_accumulation")
+        .filter((quote) => !quote.id.startsWith("jd_"))
         .map((quote) => quote.sourceTime)
         .filter((time): time is number => typeof time === "number");
       sources.market = { ok: true, sourceTime: Math.max(...marketTimes, 0) || undefined };
@@ -237,6 +325,64 @@ async function fetchQuotes(): Promise<GoldApiPayload> {
     quotes,
     sources,
   };
+}
+
+function appendJdQuote(
+  result: PromiseSettledResult<JdResponse>,
+  definition: (typeof jdDefinitions)[number],
+  quotes: Quote[],
+): SourceStatus {
+  if (result.status === "rejected") return { ok: false, error: errorMessage(result.reason) };
+  const data = result.value.resultData?.datas;
+  const price = toNumber(data?.price);
+  if (!result.value.success || !data || price === undefined) {
+    return { ok: false, error: "Invalid JD response" };
+  }
+  const sourceTime = toNumber(data.time);
+  quotes.push({
+    id: definition.id,
+    name: definition.name,
+    category: "accumulation",
+    price,
+    unit: "元/克",
+    yesterdayPrice: toNumber(data.yesterdayPrice),
+    changeAmount: toNumber(data.upAndDownAmt),
+    changePercent: toPercent(data.upAndDownRate),
+    sourceTime,
+  });
+  return { ok: true, sourceTime };
+}
+
+function medianAggregation(samples: Array<{ name: string; price: number }>): QuoteAggregation | undefined {
+  if (samples.length < 3) return undefined;
+  const prices = samples.map((sample) => sample.price);
+  return {
+    method: "median",
+    sampleCount: samples.length,
+    min: Math.min(...prices),
+    max: Math.max(...prices),
+    samples: samples.map(({ name, price }) => ({ name, price })),
+  };
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function latestSafeTime(values: Array<number | undefined>, fetchedAt: number): number {
+  const safeValues = values
+    .map((value) => safeSourceTime(value, fetchedAt))
+    .filter((value): value is number => value !== undefined);
+  return safeValues.length > 0 ? Math.max(...safeValues) : fetchedAt;
+}
+
+function safeSourceTime(value: number | undefined, fetchedAt: number): number | undefined {
+  if (!value || value > fetchedAt + 5 * 60 * 1_000) return fetchedAt;
+  return value;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

@@ -50,10 +50,16 @@ type ChartPeriod = "hour" | "day" | "week";
 
 const categoryLabels: Record<QuoteCategory, string> = {
   accumulation: "积存金",
-  domestic: "国内市场",
+  domestic: "国内基准",
   international: "国际市场",
   retail: "实物参考",
 };
+
+const HOLDING_PRODUCTS = [
+  { id: "jd_zs_accumulation", name: "京东金融浙商积存金", valuationQuoteId: "jd_zs_accumulation" },
+  { id: "jd_ms_accumulation", name: "京东金融民生积存金", valuationQuoteId: "jd_ms_accumulation" },
+  { id: "alipay_accumulation", name: "支付宝积存金", valuationQuoteId: "au9999", referenceLabel: "按 Au99.99 参考估值" },
+] as const;
 
 export function App() {
   const [snapshot, setSnapshot] = useState<QuoteSnapshot | null>(null);
@@ -217,9 +223,10 @@ interface ListViewProps {
 
 function ListView(props: ListViewProps) {
   const visibleQuotes = props.quotes.filter((quote) => !props.settings.hiddenQuoteIds.includes(quote.id));
-  const hero = visibleQuotes.find((quote) => quote.category === "accumulation");
-  const grouped = (["domestic", "international", "retail"] as QuoteCategory[])
-    .map((category) => ({ category, quotes: visibleQuotes.filter((quote) => quote.category === category) }))
+  const focusIds = ["jd_zs_accumulation", "london_gold"];
+  const focusQuotes = focusIds.map((id) => visibleQuotes.find((quote) => quote.id === id)).filter((quote): quote is Quote => Boolean(quote));
+  const grouped = (["accumulation", "domestic", "international", "retail"] as QuoteCategory[])
+    .map((category) => ({ category, quotes: visibleQuotes.filter((quote) => quote.category === category && !focusIds.includes(quote.id)) }))
     .filter((group) => group.quotes.length > 0);
 
   return (
@@ -247,24 +254,12 @@ function ListView(props: ListViewProps) {
       </header>
 
       <section className="content list-content">
-        {hero ? (
-          <button className="hero-card" onClick={() => props.onOpenDetail(hero.id)}>
-            <div className="hero-heading">
-              <div>
-                <span className="eyebrow">积存金</span>
-                <h1>{hero.name}</h1>
-              </div>
-              <DirectionPill quote={hero} snapshot={props.snapshot} />
-            </div>
-            <div className="hero-price">
-              <span>¥</span>{formatQuotePrice(hero)}<small>/克</small>
-            </div>
-            <div className="hero-meta">
-              <span>{hero.changePercent === undefined ? "实时行情" : `今日 ${signed(hero.changePercent)}%`}</span>
-              <span>昨收 {hero.yesterdayPrice?.toFixed(2) ?? "--"}</span>
-              <IconChevronRight size={18} />
-            </div>
-          </button>
+        {focusQuotes.length > 0 ? (
+          <div className="focus-grid">
+            {focusQuotes.map((quote) => (
+              <FocusCard key={quote.id} quote={quote} snapshot={props.snapshot} onClick={() => props.onOpenDetail(quote.id)} />
+            ))}
+          </div>
         ) : (
           <EmptyState />
         )}
@@ -301,13 +296,25 @@ function ListView(props: ListViewProps) {
   );
 }
 
+function FocusCard({ quote, snapshot, onClick }: { quote: Quote; snapshot: QuoteSnapshot | null; onClick: () => void }) {
+  const direction = getDirection(quote, snapshot);
+  return (
+    <button className="focus-card" onClick={onClick}>
+      <span className="eyebrow">重点关注</span>
+      <strong className="focus-name">{quote.id === "jd_zs_accumulation" ? "浙商积存金" : "伦敦现货"}</strong>
+      <span className="focus-price">{quote.unit.startsWith("美元") ? "$" : "¥"}{formatQuotePrice(quote)}</span>
+      <span className={`direction-text ${direction}`}>{directionLabel(quote, snapshot)}</span>
+    </button>
+  );
+}
+
 function QuoteRow({ quote, snapshot, onClick }: { quote: Quote; snapshot: QuoteSnapshot | null; onClick: () => void }) {
   const direction = getDirection(quote, snapshot);
   return (
     <button className="quote-row" onClick={onClick}>
       <div className="quote-name">
         <strong>{quote.name}</strong>
-        <span>{quote.id === "shuibei_gold" ? "每日参考价" : quote.unit}</span>
+        <span>{quote.aggregation ? `${quote.aggregation.sampleCount} 家样本中位数` : quote.category === "retail" ? "每日参考价" : quote.unit}</span>
       </div>
       <div className="quote-value">
         <strong>{quote.unit.startsWith("美元") ? "$" : "¥"}{formatQuotePrice(quote)}</strong>
@@ -339,7 +346,7 @@ interface DetailViewProps {
 }
 
 function DetailView({ quote, snapshot, points, alerts, position, onBack, onSaveAlert }: DetailViewProps) {
-  const isDaily = quote.id === "shuibei_gold";
+  const isDaily = quote.category === "retail";
   const [period, setPeriod] = useState<ChartPeriod>(isDaily ? "week" : "hour");
   const [showAlertForm, setShowAlertForm] = useState(false);
   const [alertIntent, setAlertIntent] = useState<AlertIntent>("buy");
@@ -403,7 +410,7 @@ function DetailView({ quote, snapshot, points, alerts, position, onBack, onSaveA
             )}
           </div>
           <TrendChart points={points} period={period} currentPrice={quote.price} />
-          {isDaily && <p className="chart-note">水贝为每日参考报价，每天保存一个价格点。</p>}
+          {isDaily && <p className="chart-note">实物参考价每天保存一个价格点，历史数据会从安装后逐步积累。</p>}
         </div>
 
         <div className="metrics-grid">
@@ -414,6 +421,21 @@ function DetailView({ quote, snapshot, points, alerts, position, onBack, onSaveA
             </div>
           ))}
         </div>
+
+        {quote.aggregation && (
+          <section className="sample-card">
+            <div className="sample-heading">
+              <div><span className="eyebrow">聚合样本</span><strong>{quote.aggregation.sampleCount} 家代表性报价</strong></div>
+              <span>中位数 ¥{formatQuotePrice(quote)}</span>
+            </div>
+            <div className="sample-range"><span>最低 ¥{formatMetric(quote.aggregation.min)}</span><span>最高 ¥{formatMetric(quote.aggregation.max)}</span></div>
+            <div className="sample-list">
+              {quote.aggregation.samples.map((sample) => (
+                <div key={sample.name}><span>{sample.name}</span><strong>¥{formatMetric(sample.price)}</strong></div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {showAlertForm ? (
           <div className="alert-form">
@@ -472,19 +494,19 @@ function HoldingsView({ quotes, positions, transactions, onBack, onOpenDetail, o
   onOpenDetail: (quoteId: string) => void;
   onChangeTransactions: (transactions: HoldingTransaction[]) => Promise<void>;
 }) {
-  const supportedQuotes = quotes.filter((quote) => quote.unit === "元/克");
-  const defaultQuote = supportedQuotes.find((quote) => quote.category === "accumulation") ?? supportedQuotes[0];
+  const defaultProduct = HOLDING_PRODUCTS[0];
   const [showForm, setShowForm] = useState(transactions.length === 0);
-  const [quoteId, setQuoteId] = useState(defaultQuote?.id ?? "jd_zs_accumulation");
+  const [productId, setProductId] = useState<string>(defaultProduct.id);
   const [type, setType] = useState<"buy" | "sell">("buy");
   const [grams, setGrams] = useState("");
-  const [price, setPrice] = useState(defaultQuote?.price.toFixed(2) ?? "");
+  const [price, setPrice] = useState(quotes.find((quote) => quote.id === defaultProduct.valuationQuoteId)?.price.toFixed(2) ?? "");
   const [formError, setFormError] = useState<string | null>(null);
-  const selectedQuote = supportedQuotes.find((quote) => quote.id === quoteId) ?? defaultQuote;
-  const selectedPosition = positions.find((position) => position.quoteId === quoteId);
+  const selectedProduct = HOLDING_PRODUCTS.find((product) => product.id === productId) ?? defaultProduct;
+  const selectedValuationQuote = quotes.find((quote) => quote.id === selectedProduct.valuationQuoteId);
+  const selectedPosition = positions.find((position) => position.quoteId === productId);
 
   const totals = positions.reduce((summary, position) => {
-    const quote = quotes.find((item) => item.id === position.quoteId);
+    const quote = quotes.find((item) => item.id === position.valuationQuoteId);
     const marketValue = position.grams * (quote?.price ?? position.averageCost);
     summary.cost += position.cost;
     summary.marketValue += marketValue;
@@ -493,9 +515,10 @@ function HoldingsView({ quotes, positions, transactions, onBack, onOpenDetail, o
   const totalProfit = totals.marketValue - totals.cost;
   const totalRate = totals.cost > 0 ? totalProfit / totals.cost * 100 : 0;
 
-  function changeQuote(nextQuoteId: string) {
-    setQuoteId(nextQuoteId);
-    const quote = supportedQuotes.find((item) => item.id === nextQuoteId);
+  function changeProduct(nextProductId: string) {
+    setProductId(nextProductId);
+    const product = HOLDING_PRODUCTS.find((item) => item.id === nextProductId);
+    const quote = quotes.find((item) => item.id === product?.valuationQuoteId);
     if (quote) setPrice(quote.price.toFixed(2));
     setFormError(null);
   }
@@ -503,7 +526,7 @@ function HoldingsView({ quotes, positions, transactions, onBack, onOpenDetail, o
   async function addTransaction() {
     const numericGrams = Number.parseFloat(grams);
     const numericPrice = Number.parseFloat(price);
-    if (!selectedQuote || !Number.isFinite(numericGrams) || numericGrams <= 0 || !Number.isFinite(numericPrice) || numericPrice <= 0) {
+    if (!selectedValuationQuote || !Number.isFinite(numericGrams) || numericGrams <= 0 || !Number.isFinite(numericPrice) || numericPrice <= 0) {
       setFormError("请输入有效的克数和成交价");
       return;
     }
@@ -513,8 +536,9 @@ function HoldingsView({ quotes, positions, transactions, onBack, onOpenDetail, o
     }
     const next = [...transactions, {
       id: crypto.randomUUID(),
-      quoteId: selectedQuote.id,
-      quoteName: selectedQuote.name,
+      quoteId: selectedProduct.id,
+      quoteName: selectedProduct.name,
+      valuationQuoteId: selectedProduct.valuationQuoteId,
       type,
       grams: numericGrams,
       price: numericPrice,
@@ -551,9 +575,10 @@ function HoldingsView({ quotes, positions, transactions, onBack, onOpenDetail, o
               <button className={type === "buy" ? "active" : ""} onClick={() => { setType("buy"); setFormError(null); }}>买入</button>
               <button className={type === "sell" ? "active" : ""} onClick={() => { setType("sell"); setFormError(null); }}>卖出</button>
             </div>
-            <select className="select-input" value={quoteId} onChange={(event) => changeQuote(event.target.value)}>
-              {supportedQuotes.map((quote) => <option key={quote.id} value={quote.id}>{quote.name}</option>)}
+            <select className="select-input" value={productId} onChange={(event) => changeProduct(event.target.value)}>
+              {HOLDING_PRODUCTS.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
             </select>
+            {"referenceLabel" in selectedProduct && <p className="valuation-note">{selectedProduct.referenceLabel}</p>}
             <div className="transaction-inputs">
               <label><span>克数</span><input value={grams} inputMode="decimal" placeholder="0.0000" onChange={(event) => setGrams(event.target.value)} /><small>克</small></label>
               <label><span>成交价</span><input value={price} inputMode="decimal" placeholder="0.00" onChange={(event) => setPrice(event.target.value)} /><small>元/克</small></label>
@@ -569,15 +594,16 @@ function HoldingsView({ quotes, positions, transactions, onBack, onOpenDetail, o
         ) : (
           <div className="position-list">
             {positions.map((position) => {
-              const quote = quotes.find((item) => item.id === position.quoteId);
+              const quote = quotes.find((item) => item.id === position.valuationQuoteId);
+              const isAlipay = position.quoteId === "alipay_accumulation";
               const marketValue = position.grams * (quote?.price ?? position.averageCost);
               const profit = marketValue - position.cost;
               const rate = position.cost > 0 ? profit / position.cost * 100 : 0;
               return (
-                <button className="position-card" key={position.quoteId} onClick={() => onOpenDetail(position.quoteId)}>
-                  <div className="position-title"><strong>{position.quoteName}</strong><IconChevronRight size={16} /></div>
+                <button className="position-card" key={position.quoteId} onClick={() => { if (!isAlipay) onOpenDetail(position.valuationQuoteId); }}>
+                  <div className="position-title"><strong>{position.quoteName}</strong>{isAlipay ? <span className="reference-badge">Au99.99 估值</span> : <IconChevronRight size={16} />}</div>
                   <div className="position-value"><strong>{formatCurrency(marketValue)}</strong><span className={profitClass(profit)}>{signedMoney(profit)} · {signed(rate)}%</span></div>
-                  <div className="position-meta"><span>{position.grams.toFixed(4)} 克</span><span>成本 {position.averageCost.toFixed(2)}</span><span>现价 {quote?.price.toFixed(2) ?? "--"}</span></div>
+                  <div className="position-meta"><span>{position.grams.toFixed(4)} 克</span><span>成本 {position.averageCost.toFixed(2)}</span><span>{isAlipay ? "参考价" : "现价"} {quote?.price.toFixed(2) ?? "--"}</span></div>
                 </button>
               );
             })}
@@ -659,7 +685,7 @@ function SettingsView({ quotes, settings, onBack, onChange }: {
 
         <div className="about-card">
           <div className="brand-mark small-mark">Au</div>
-          <div><strong>金豆行情 v0.2.0</strong><span>数据仅供参考，以实际交易报价为准</span></div>
+          <div><strong>金豆行情 v0.3.0</strong><span>数据仅供参考，以实际交易报价为准</span></div>
         </div>
       </section>
     </>
@@ -733,7 +759,8 @@ function EmptyState() {
 }
 
 function metricEntries(quote: Quote): [string, string][] {
-  if (quote.id === "shuibei_gold") return [["报价类型", "每日参考"], ["当前报价", `¥${quote.price.toFixed(0)}`]];
+  if (quote.aggregation) return [["聚合方式", "中位数"], ["有效样本", `${quote.aggregation.sampleCount} 家`], ["价格区间", `¥${formatMetric(quote.aggregation.min)}–${formatMetric(quote.aggregation.max)}`]];
+  if (quote.category === "retail") return [["报价类型", "每日参考"], ["当前报价", `¥${formatQuotePrice(quote)}`]];
   const candidates: [string, number | undefined][] = [
     ["最高价", quote.high],
     ["最低价", quote.low],
@@ -772,7 +799,7 @@ function relativeTime(timestamp: number): string {
 }
 
 function formatQuotePrice(quote: Quote): string {
-  if (quote.id === "shuibei_gold") return quote.price.toFixed(0);
+  if (quote.category === "retail" && Number.isInteger(quote.price)) return quote.price.toFixed(0);
   return quote.price.toFixed(2);
 }
 

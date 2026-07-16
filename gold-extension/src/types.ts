@@ -20,6 +20,15 @@ export interface Quote {
   high?: number;
   low?: number;
   sourceTime?: number;
+  aggregation?: QuoteAggregation;
+}
+
+export interface QuoteAggregation {
+  method: "median";
+  sampleCount: number;
+  min: number;
+  max: number;
+  samples: Array<{ name: string; price: number }>;
 }
 
 export interface SourceStatus {
@@ -34,7 +43,8 @@ export interface GoldApiPayload {
   stale: boolean;
   quotes: Quote[];
   sources: {
-    jd: SourceStatus;
+    jdZheshang: SourceStatus;
+    jdMinsheng: SourceStatus;
     market: SourceStatus;
   };
 }
@@ -75,6 +85,7 @@ export interface HoldingTransaction {
   id: string;
   quoteId: string;
   quoteName: string;
+  valuationQuoteId?: string;
   type: TransactionType;
   grams: number;
   price: number;
@@ -84,6 +95,7 @@ export interface HoldingTransaction {
 export interface HoldingPosition {
   quoteId: string;
   quoteName: string;
+  valuationQuoteId: string;
   grams: number;
   cost: number;
   averageCost: number;
@@ -103,9 +115,12 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
 
 export const QUOTE_ORDER = [
   "jd_zs_accumulation",
+  "jd_ms_accumulation",
   "au9999",
-  "autd",
   "london_gold",
   "new_york_gold",
   "shuibei_gold",
+  "retail_store_gold",
+  "bank_investment_bar",
+  "gold_recycle",
 ];
