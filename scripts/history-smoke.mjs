@@ -43,6 +43,7 @@ const {
 } = await import("../src/history.ts");
 
 const scheduledAt = Date.UTC(2026, 6, 29, 12, 34, 56);
+const dayMs = 24 * 60 * 60 * 1_000;
 const minuteTimestamp = Date.UTC(2026, 6, 29, 12, 34, 0);
 const chinaMidnight = Date.UTC(2026, 6, 28, 16, 0, 0);
 const quotes = [
@@ -69,6 +70,9 @@ const deleted = await deleteExpiredHistory(cleanupDb, scheduledAt);
 if (deleted !== 9 || cleanupDb.statements.length !== 9) {
   throw new Error("Cleanup did not target all nine history quote IDs");
 }
+if (cleanupDb.statements.some((statement) => statement.params[1] !== scheduledAt - 7 * dayMs)) {
+  throw new Error("Cleanup cutoff is not seven days");
+}
 
 const readDb = new FakeDatabase();
 readDb.queryRows = [
@@ -79,7 +83,7 @@ const response = await historyResponse(
   readDb,
 );
 const payload = await response.json();
-if (!response.ok || payload.history.jd_zs_accumulation?.[0]?.price !== 880) {
+if (!response.ok || payload.retentionDays !== 7 || payload.history.jd_zs_accumulation?.[0]?.price !== 880) {
   throw new Error("History endpoint did not return the stored point");
 }
 
@@ -88,5 +92,11 @@ const invalidResponse = await historyResponse(
   readDb,
 );
 if (invalidResponse.status !== 400) throw new Error("Unknown quote ID should be rejected");
+
+const tooManyDaysResponse = await historyResponse(
+  new URL("https://gold-api.test/v1/history?days=8"),
+  readDb,
+);
+if (tooManyDaysResponse.status !== 400) throw new Error("History longer than seven days should be rejected");
 
 console.log(JSON.stringify({ captured, deleted, historyPoints: payload.history.jd_zs_accumulation.length }));

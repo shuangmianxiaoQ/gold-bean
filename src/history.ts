@@ -1,4 +1,4 @@
-const HISTORY_RETENTION_DAYS = 30;
+const HISTORY_RETENTION_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const MINUTE_MS = 60 * 1_000;
 const CHINA_TIME_OFFSET_MS = 8 * 60 * 60 * 1_000;
@@ -43,11 +43,11 @@ export async function historyResponse(url: URL, db: D1Database): Promise<Respons
 
   const daysValue = url.searchParams.get("days") ?? "7";
   if (!/^\d+$/.test(daysValue)) {
-    return jsonResponse({ success: false, error: "days must be an integer from 1 to 30" }, 400);
+    return jsonResponse({ success: false, error: "days must be an integer from 1 to 7" }, 400);
   }
   const days = Number.parseInt(daysValue, 10);
   if (days < 1 || days > HISTORY_RETENTION_DAYS) {
-    return jsonResponse({ success: false, error: "days must be an integer from 1 to 30" }, 400);
+    return jsonResponse({ success: false, error: "days must be an integer from 1 to 7" }, 400);
   }
 
   const ids = quoteId ? [quoteId] : [...historyQuoteIds];
