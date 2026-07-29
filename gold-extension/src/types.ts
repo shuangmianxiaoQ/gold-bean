@@ -68,6 +68,14 @@ export interface HistoryPoint {
 
 export type QuoteHistory = Record<string, HistoryPoint[]>;
 
+export interface HistoryApiPayload {
+  success: boolean;
+  from: number;
+  to: number;
+  retentionDays: number;
+  history: QuoteHistory;
+}
+
 export interface ExtensionSettings {
   refreshInterval: RefreshInterval;
   badgeQuoteId: string;

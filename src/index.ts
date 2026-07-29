@@ -1,11 +1,12 @@
 import { isCompletePayload, mergeWithFallback, type SourceKey } from "./fallback.ts";
+import { deleteExpiredHistory, historyResponse, persistHistory } from "./history.ts";
 
 const JD_BASE_URL =
   "https://api.jdjygold.com/gw2/generic/jrm/h5/m/stdLatestPrice?productSku=";
 const MARKET_URL = "https://60s.pixidou.com/v2/gold-price";
 const EXCHANGE_RATE_URL = "https://60s.pixidou.com/v2/exchange-rate";
 
-const FRESH_TTL_SECONDS = 5;
+const FRESH_TTL_SECONDS = 10;
 const FALLBACK_TTL_SECONDS = 300;
 const EXCHANGE_RATE_TTL_SECONDS = 15 * 60;
 const UPSTREAM_TIMEOUT_MS = 15_000;
@@ -175,7 +176,7 @@ const metalDefinitions = [
 ] as const;
 
 export default {
-  async fetch(request: Request, _env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") return corsPreflightResponse();
@@ -185,10 +186,15 @@ export default {
       return jsonResponse({ success: true, service: "gold-api", time: Date.now() });
     }
 
+    if (url.pathname === "/v1/history") {
+      return historyResponse(url, env.DB);
+    }
+
     if (url.pathname !== "/v1/quotes") {
       return jsonResponse({
         service: "gold-api",
         endpoint: "/v1/quotes",
+        historyEndpoint: "/v1/history?days=7",
         refreshSeconds: 10,
         cacheSeconds: FRESH_TTL_SECONDS,
       });
@@ -234,6 +240,23 @@ export default {
     }
 
     return jsonResponse(payload, 502, { "X-Gold-Cache": "MISS" });
+  },
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    const payload = await fetchQuotes();
+    if (!payload.success) throw new Error("No quotes available for history capture");
+
+    const captured = await persistHistory(env.DB, payload.quotes, controller.scheduledTime);
+    let deleted = 0;
+    if (new Date(controller.scheduledTime).getUTCMinutes() === 7) {
+      deleted = await deleteExpiredHistory(env.DB, controller.scheduledTime);
+    }
+
+    console.log(JSON.stringify({
+      event: "history_capture",
+      scheduledAt: controller.scheduledTime,
+      captured,
+      deleted,
+    }));
   },
 } satisfies ExportedHandler<Env>;
 

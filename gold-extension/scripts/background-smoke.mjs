@@ -104,6 +104,9 @@ await events.installed[0]();
 for (let attempt = 0; attempt < 30 && !data.quoteSnapshot; attempt += 1) {
   await new Promise((resolve) => setTimeout(resolve, 500));
 }
+for (let attempt = 0; attempt < 30 && !data.quoteHistory.jd_zs_accumulation?.some((point) => point.time % 60_000 === 0); attempt += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+}
 
 if (!data.quoteSnapshot?.success) throw new Error("Background refresh did not store a valid snapshot");
 if (data.quoteSnapshot.quotes.length < 9) throw new Error("Expected nine aggregated quotes");
@@ -113,9 +116,31 @@ if (data.alarm?.periodInMinutes !== 0.5) throw new Error("Background alarm is no
 const retainedHistory = data.quoteHistory.jd_zs_accumulation;
 if (retainedHistory.some((point) => point.time < now - 7 * 24 * 60 * 60_000)) throw new Error("History older than seven days was retained");
 if (!retainedHistory.some((point) => point.price === 850)) throw new Error("History from the previous seven days was lost");
+if (!retainedHistory.some((point) => point.time % 60_000 === 0)) throw new Error("Server history was not restored");
 if (!data.notification) throw new Error("Cost-based alert did not create a notification");
 if (!data.priceAlerts[0]?.completed || data.priceAlerts[0]?.enabled) throw new Error("One-time alert was not completed");
 if (!syncData.goldBeanSyncManifest) throw new Error("Personal data was not mirrored to Chrome Sync");
+
+const offlinePoint = { time: Date.now() - 60_000, price: 123.45 };
+data.quoteHistory.offline_only = [offlinePoint];
+const nativeFetch = globalThis.fetch;
+let offlineHistoryAttempted = false;
+globalThis.fetch = (input, init) => {
+  const url = typeof input === "string" ? input : input.url;
+  if (url.includes("/v1/history")) {
+    offlineHistoryAttempted = true;
+    return Promise.reject(new Error("offline"));
+  }
+  return nativeFetch(input, init);
+};
+events.startup[0]();
+for (let attempt = 0; attempt < 30 && !offlineHistoryAttempted; attempt += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+}
+globalThis.fetch = nativeFetch;
+if (data.quoteHistory.offline_only?.[0]?.price !== offlinePoint.price) {
+  throw new Error("Local history was lost when the server endpoint was unavailable");
+}
 
 console.log(JSON.stringify({
   quoteCount: data.quoteSnapshot.quotes.length,
@@ -124,4 +149,6 @@ console.log(JSON.stringify({
   alarmMinutes: data.alarm.periodInMinutes,
   title: data.title,
   costAlertCompleted: data.priceAlerts[0].completed,
+  serverHistoryRestored: true,
+  offlineHistoryPreserved: true,
 }, null, 2));

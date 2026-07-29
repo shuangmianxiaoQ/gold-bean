@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "gold-api",
   "main": "src/index.ts",
-  "compatibility_date": "2026-07-14",
+  "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "routes": [
@@ -14,5 +14,16 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gold-history",
+      "database_id": "214de1d4-639d-4e7e-8253-108f73b2268b",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
   }
 }

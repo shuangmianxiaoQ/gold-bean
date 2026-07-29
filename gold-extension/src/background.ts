@@ -12,6 +12,7 @@ import {
 import { calculatePositions } from "./holdings";
 import type {
   GoldApiPayload,
+  HistoryApiPayload,
   HistoryPoint,
   PriceAlert,
   PriceDirection,
@@ -22,6 +23,7 @@ import type {
 } from "./types";
 
 const API_URL = "https://gold-api.pixidou.com/v1/quotes";
+const HISTORY_API_URL = "https://gold-api.pixidou.com/v1/history?days=7";
 const ALARM_NAME = "refresh-gold-quotes";
 const BACKGROUND_INTERVAL_MINUTES = 0.5;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -66,6 +68,7 @@ async function bootstrap(): Promise<void> {
   await initializeStorage();
   await ensureAlarm();
   await refreshQuotes();
+  await refreshHistoryFromServer();
 }
 
 async function ensureAlarm(): Promise<void> {
@@ -129,6 +132,54 @@ async function updateHistory(quotes: Quote[], fetchedAt: number): Promise<QuoteH
   }
 
   return history;
+}
+
+async function refreshHistoryFromServer(): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(HISTORY_API_URL, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) return;
+    const payload = (await response.json()) as Partial<HistoryApiPayload>;
+    if (!payload.success || !isQuoteHistory(payload.history)) return;
+
+    const localHistory = await getHistory();
+    const cutoff = Date.now() - HISTORY_RETENTION_MS;
+    const merged: QuoteHistory = {};
+    const quoteIds = new Set([...Object.keys(localHistory), ...Object.keys(payload.history)]);
+
+    for (const quoteId of quoteIds) {
+      const byTime = new Map<number, HistoryPoint>();
+      for (const point of [...(payload.history[quoteId] ?? []), ...(localHistory[quoteId] ?? [])]) {
+        if (point.time >= cutoff) byTime.set(point.time, point);
+      }
+      merged[quoteId] = [...byTime.values()].sort((a, b) => a.time - b.time);
+    }
+
+    await chrome.storage.local.set({ [STORAGE_KEYS.history]: merged });
+  } catch {
+    // The locally collected history remains available when the public history endpoint is offline.
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isQuoteHistory(value: unknown): value is QuoteHistory {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  return Object.values(value).every((points) => Array.isArray(points) && points.every((point) => (
+    typeof point === "object"
+      && point !== null
+      && "time" in point
+      && "price" in point
+      && typeof point.time === "number"
+      && Number.isFinite(point.time)
+      && typeof point.price === "number"
+      && Number.isFinite(point.price)
+  )));
 }
 
 async function evaluateAlerts(quotes: Quote[]): Promise<void> {
