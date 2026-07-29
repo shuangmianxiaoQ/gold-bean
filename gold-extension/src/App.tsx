@@ -38,6 +38,7 @@ import {
 } from "./storage";
 import { createBackupDocument, parseBackupDocument } from "./backup";
 import { calculatePositions } from "./holdings";
+import { getObservedDayRange } from "./quoteMetrics";
 import { TrendChart } from "./TrendChart";
 import type {
   AlertDirection,
@@ -604,7 +605,7 @@ function DetailView({ quote, snapshot, points, alerts, position, onBack, onSaveA
 
         {!quote.aggregation && (
           <div className="metrics-grid">
-            {metricEntries(quote).map(([label, value]) => (
+            {metricEntries(quote, points).map(([label, value]) => (
               <div className="metric" key={label}>
                 <span>{label}</span>
                 <strong>{value}</strong>
@@ -976,7 +977,7 @@ function SettingsView({ quotes, settings, onBack, onChange, onRestored }: {
 
         <div className="about-card">
           <div className="brand-mark small-mark">Au</div>
-          <div><strong>金豆行情 v0.4.0</strong><span>数据仅供参考，以实际交易报价为准</span></div>
+          <div><strong>金豆行情 v{chrome.runtime.getManifest().version}</strong><span>数据仅供参考，以实际交易报价为准</span></div>
         </div>
       </section>
     </>
@@ -1049,12 +1050,15 @@ function EmptyState() {
   return <div className="empty-state">正在获取积存金行情…</div>;
 }
 
-function metricEntries(quote: Quote): [string, string][] {
+function metricEntries(quote: Quote, points: { time: number; price: number }[] = []): [string, string][] {
   if (quote.aggregation) return [["聚合方式", "中位数"], ["有效样本", `${quote.aggregation.sampleCount} 家`], ["价格区间", `¥${formatMetric(quote.aggregation.min)}–${formatMetric(quote.aggregation.max)}`]];
   if (quote.category === "retail") return [["报价类型", "每日参考"], ["当前报价", `¥${formatQuotePrice(quote)}`]];
+  const observedRange = quote.category === "accumulation"
+    ? getObservedDayRange(points, quote.price)
+    : undefined;
   const candidates: [string, number | undefined][] = [
-    ["最高价", quote.high],
-    ["最低价", quote.low],
+    ["今日最高价", quote.high ?? observedRange?.high],
+    ["今日最低价", quote.low ?? observedRange?.low],
   ];
   return candidates.filter((entry): entry is [string, number] => entry[1] !== undefined)
     .slice(0, 3)
