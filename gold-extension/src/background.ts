@@ -27,8 +27,16 @@ const HISTORY_API_URL = "https://gold-api.pixidou.com/v1/history?days=7";
 const ALARM_NAME = "refresh-gold-quotes";
 const BACKGROUND_INTERVAL_MINUTES = 0.5;
 const REQUEST_TIMEOUT_MS = 20_000;
-const HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+const DAY_MS = 24 * 60 * 60 * 1_000;
+const CHINA_TIME_OFFSET_MS = 8 * 60 * 60 * 1_000;
+const HISTORY_RETENTION_MS = 7 * DAY_MS;
 const MINUTE_MS = 60 * 1_000;
+const DAILY_HISTORY_QUOTE_IDS = new Set([
+  "shuibei_gold",
+  "retail_store_gold",
+  "bank_investment_bar",
+  "gold_recycle",
+]);
 
 chrome.runtime.onInstalled.addListener(() => {
   void bootstrap();
@@ -120,15 +128,14 @@ async function updateHistory(quotes: Quote[], fetchedAt: number): Promise<QuoteH
   const cutoff = fetchedAt - HISTORY_RETENTION_MS;
 
   for (const quote of quotes) {
-    const points = (history[quote.id] ?? []).filter((point) => point.time >= cutoff);
-    const last = points.at(-1);
-    const isDailyQuote = quote.category === "retail";
-    const shouldAppend = isDailyQuote
-      ? !last || new Date(last.time).toDateString() !== new Date(fetchedAt).toDateString()
-      : !last || fetchedAt - last.time >= MINUTE_MS;
-
-    if (shouldAppend) points.push({ time: fetchedAt, price: quote.price });
-    history[quote.id] = points;
+    const byTime = new Map<number, HistoryPoint>();
+    for (const point of history[quote.id] ?? []) {
+      const time = historyBucketTime(quote.id, point.time);
+      if (time >= cutoff) byTime.set(time, { ...point, time });
+    }
+    const time = historyBucketTime(quote.id, fetchedAt);
+    byTime.set(time, { time, price: quote.price });
+    history[quote.id] = [...byTime.values()].sort((a, b) => a.time - b.time);
   }
 
   return history;
@@ -155,7 +162,8 @@ async function refreshHistoryFromServer(): Promise<void> {
     for (const quoteId of quoteIds) {
       const byTime = new Map<number, HistoryPoint>();
       for (const point of [...(payload.history[quoteId] ?? []), ...(localHistory[quoteId] ?? [])]) {
-        if (point.time >= cutoff) byTime.set(point.time, point);
+        const time = historyBucketTime(quoteId, point.time);
+        if (time >= cutoff) byTime.set(time, { ...point, time });
       }
       merged[quoteId] = [...byTime.values()].sort((a, b) => a.time - b.time);
     }
@@ -166,6 +174,13 @@ async function refreshHistoryFromServer(): Promise<void> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function historyBucketTime(quoteId: string, timestamp: number): number {
+  if (DAILY_HISTORY_QUOTE_IDS.has(quoteId)) {
+    return Math.floor((timestamp + CHINA_TIME_OFFSET_MS) / DAY_MS) * DAY_MS - CHINA_TIME_OFFSET_MS;
+  }
+  return Math.floor(timestamp / MINUTE_MS) * MINUTE_MS;
 }
 
 function isQuoteHistory(value: unknown): value is QuoteHistory {

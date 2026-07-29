@@ -142,6 +142,18 @@ if (data.quoteHistory.offline_only?.[0]?.price !== offlinePoint.price) {
   throw new Error("Local history was lost when the server endpoint was unavailable");
 }
 
+const dailyQuoteIds = new Set(["shuibei_gold", "retail_store_gold", "bank_investment_bar", "gold_recycle"]);
+const dayMs = 24 * 60 * 60_000;
+const chinaOffsetMs = 8 * 60 * 60_000;
+for (const [quoteId, points] of Object.entries(data.quoteHistory)) {
+  const buckets = points.map((point) => dailyQuoteIds.has(quoteId)
+    ? Math.floor((point.time + chinaOffsetMs) / dayMs) * dayMs - chinaOffsetMs
+    : Math.floor(point.time / 60_000) * 60_000);
+  if (new Set(buckets).size !== buckets.length) {
+    throw new Error(`Duplicate history bucket for ${quoteId}`);
+  }
+}
+
 console.log(JSON.stringify({
   quoteCount: data.quoteSnapshot.quotes.length,
   badgeText: data.badgeText,
