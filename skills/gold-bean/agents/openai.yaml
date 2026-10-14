@@ -1,0 +1,13 @@
+interface:
+  display_name: 金豆行情
+  short_description: 基于公开接口查询实时金价、换算黄金单位和汇率，按传入克数与成本测算持仓盈亏
+  default_prompt: 使用 $gold-bean 查询当前金价，并按我提供的参数换算价格或测算持仓盈亏。
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
